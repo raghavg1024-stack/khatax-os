@@ -14,6 +14,9 @@ if (listed.status) {
 const files = listed.stdout.split("\0").filter(Boolean);
 const secrets = [
   "OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
   "GNANI_API_KEY",
   "TURSO_AUTH_TOKEN",
   "VERCEL_OIDC_TOKEN",

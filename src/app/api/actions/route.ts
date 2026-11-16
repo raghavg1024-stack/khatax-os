@@ -198,7 +198,7 @@ export async function POST(req: Request) {
     if (error instanceof UserInputError)
       return Response.json(
         { error: error.message, code: error.code },
-        { status: 400 },
+        { status: error.status },
       );
     if (error instanceof z.ZodError)
       return Response.json(

@@ -11,7 +11,7 @@ The Vercel deployment uses Next.js, a hosted SQLite database, and native Node We
 | Private GitHub repository | Source, schema/migrations, tests, detailed documentation                |
 | Vercel project            | HTTPS web interface, HTTP APIs, bounded native voice WebSocket sessions |
 | Turso hosted SQLite       | Durable customers, entries, commands, and audit history                 |
-| OpenAI project/key        | Structured multilingual intention extraction                            |
+| Gemini project/key        | Structured multilingual intention extraction; legacy OpenAI remains optional |
 | Gnani key                 | Prisma v3.0 streaming recognition and Timbre v3.0 speech synthesis      |
 
 Turso's Starter plan was selected for the initial database setup. Account/marketplace terms must be accepted by the account owner before provisioning. Additional usage or paid plans are not automatically authorized by this repository.
@@ -21,6 +21,8 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 | Variable             | Secret?              | Meaning                                        |
 | -------------------- | -------------------- | ---------------------------------------------- |
 | `DATABASE_URL`       | Local path/config    | Prisma CLI SQLite URL for local migration work |
+| `GEMINI_API_KEY`     | Yes                  | Preferred LLM credential                       |
+| `GEMINI_MODEL`       | No                   | Defaults to `gemini-3.5-flash-lite`             |
 | `TURSO_DATABASE_URL` | Server configuration | Hosted SQLite endpoint                         |
 | `TURSO_AUTH_TOKEN`   | Yes                  | Hosted database authentication                 |
 | `OPENAI_API_KEY`     | Yes                  | LLM credential                                 |
@@ -30,7 +32,7 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 
 Store production credentials in Vercel environment variables. Never put them in Git, `vercel.json`, a browser bundle, a screenshot, or a command-line argument. Environment files and local SQLite data are excluded from both Git and deployment uploads.
 
-The server also accepts `OPEN_AI` and `GNANI_AI` as legacy names. Canonical names take precedence, so update `OPENAI_API_KEY` when both OpenAI settings exist. Each value must contain only the key, without labels, internal whitespace, or additional credentials. A malformed value returns the safe `provider_configuration` error before calling the provider. Rebuild Production after saving a setting.
+Gemini takes precedence when `GEMINI_API_KEY` (or its `GOOGLE_GENERATIVE_AI_API_KEY` / `GOOGLE_API_KEY` aliases) is configured. With no Gemini key, the existing OpenAI integration is used. The server also accepts `OPEN_AI` and `GNANI_AI` as legacy names. Canonical names take precedence. Each value must contain only the key, without labels, internal whitespace, or additional credentials. A malformed value returns the safe `provider_configuration` error before calling the provider. Rebuild Production after saving a setting.
 
 Production and preview should use separate databases when testing changes that write records. A preview must not run destructive setup against the production ledger. Schema initialization is a separate deliberate step, not a reset during every build.
 
@@ -50,7 +52,7 @@ For later schema-only updates, run `npm run db:hosted` without the import flag. 
 
 `npm run db:verify` checks hosted Prisma reads, persistence across independent database clients, immutable entries, and rollback without changing financial records. Automated local ledger/browser tests explicitly disable Turso so they cannot write to production.
 
-OpenAI and Gnani Production keys can be entered directly by the project owner or copied from an ignored local environment file with the owner's explicit authorization. Store them as sensitive server-only variables, pass values through stdin, and suppress credential-bearing command output. The repository does not automatically upload local keys during a build or Git push.
+Gemini, OpenAI, and Gnani Production keys can be entered directly by the project owner or copied from an ignored local environment file with the owner's explicit authorization. Store them as sensitive server-only variables, pass values through stdin, and suppress credential-bearing command output. The repository does not automatically upload local keys during a build or Git push.
 
 ## Runtime details
 
@@ -80,6 +82,10 @@ Turning production protection off makes the one shared shop and its paid API ope
 8. Confirm unauthenticated access is protected and secrets are absent from the source upload.
 
 If OpenAI returns `openai_quota_exhausted`, fund the key's API billing account before retrying; redeployment does not remove that condition. If it returns `provider_configuration`, correct the Production key value and rebuild. Gnani synthesis, streaming recognition, and browser audio decoding passed the local live-provider checks; verify the owner's Production credentials separately.
+
+For Gemini, `gemini_rate_limited` means the request reached Google's rate/quota limit; check the project's quota in AI Studio. `gemini_configuration` means the key, model, or project access needs attention. The application does not silently fall back to OpenAI or label a local parse as Gemini. Responses must finish successfully and pass the same Zod schema before becoming a saved preview.
+
+References: [Gemini model](https://aistudio.google.com/docs/models/gemini-3.5-flash-lite), [structured output](https://aistudio.google.com/docs/structured-output), [REST API](https://aistudio.google.com/api-reference/generate-content).
 
 ## Updates and rollback
 

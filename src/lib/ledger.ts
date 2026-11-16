@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { UserInputError } from "./errors";
-import { openAIKey, gnaniKey } from "./provider-config";
+import { llmProvider, gnaniKey } from "./provider-config";
 import {
   dateSchema,
   indiaDate,
@@ -83,7 +83,7 @@ export async function snapshot() {
       };
     }),
     providers: {
-      llm: openAIKey() ? "OpenAI" : "Local parser · demo",
+      llm: llmProvider(),
       stt: gnaniKey() ? "Gnani Prisma v3.0" : "Browser speech · demo",
       tts: gnaniKey() ? "Gnani Timbre v3.0" : "Browser voice · demo",
       gnaniVoice: !!gnaniKey(),

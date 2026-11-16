@@ -4,9 +4,15 @@ const safeCode = (value) =>
   typeof value === "string" && /^[a-zA-Z_0-9.-]{1,80}$/.test(value)
     ? value
     : undefined;
+const geminiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY)?.trim();
 await Promise.all(
   [
-    [
+    geminiKey ? [
+      "Gemini",
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_MODEL || "gemini-3.5-flash-lite")}:generateContent`,
+      { "x-goog-api-key": geminiKey, "Content-Type": "application/json" },
+      { contents: [{parts:[{text:"Reply OK."}]}], generationConfig: {maxOutputTokens:64} },
+    ] : [
       "OpenAI",
       "https://api.openai.com/v1/responses",
       {

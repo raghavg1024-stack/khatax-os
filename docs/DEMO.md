@@ -4,7 +4,7 @@
 
 Open the app, allow microphone access, choose Hindi/English, Kannada/English, Telugu/English, or English, and check provider settings. Use sample customer records or an explicitly created demo customer. Enable spoken replies if desired.
 
-For live AI processing, the OpenAI account needs API credits. Without a configured LLM key, the app offers a clearly labeled limited local parser. A configured key with exhausted credits produces an honest billing error rather than pretending a transaction succeeded.
+For live AI processing, configure `GEMINI_API_KEY` with available project quota. The optional existing OpenAI integration requires API credits. Without a configured LLM key, the app offers a clearly labeled limited local parser. A configured provider with exhausted credits or quota returns an honest error rather than pretending a transaction succeeded.
 
 ## Show the flow
 

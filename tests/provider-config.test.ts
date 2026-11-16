@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   openAIKey,
   gnaniKey,
+  geminiKey,
+  llmProvider,
   assertProviderKey,
 } from "../src/lib/provider-config";
 
@@ -10,6 +12,9 @@ test("Production aliases resolve and canonical names take precedence", () => {
   const keys = [
     "OPENAI_API_KEY",
     "OPEN_AI",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
     "GNANI_API_KEY",
     "GNANI_AI",
   ] as const;
@@ -18,14 +23,21 @@ test("Production aliases resolve and canonical names take precedence", () => {
     keys.forEach((key) => delete process.env[key]);
     assert.equal(openAIKey(), undefined);
     assert.equal(gnaniKey(), undefined);
+    assert.equal(llmProvider(), "Local parser · demo");
     process.env.OPEN_AI = "openai-alias-placeholder";
     process.env.GNANI_AI = "gnani-alias-placeholder";
     assert.equal(openAIKey(), "openai-alias-placeholder");
     assert.equal(gnaniKey(), "gnani-alias-placeholder");
+    assert.equal(llmProvider(), "OpenAI");
     process.env.OPENAI_API_KEY = "openai-canonical-placeholder";
     process.env.GNANI_API_KEY = "gnani-canonical-placeholder";
     assert.equal(openAIKey(), "openai-canonical-placeholder");
     assert.equal(gnaniKey(), "gnani-canonical-placeholder");
+    process.env.GOOGLE_API_KEY = "google-alias-placeholder";
+    assert.equal(geminiKey(), "google-alias-placeholder");
+    process.env.GEMINI_API_KEY = "gemini-canonical-placeholder";
+    assert.equal(geminiKey(), "gemini-canonical-placeholder");
+    assert.equal(llmProvider(), "Gemini");
   } finally {
     for (const key of keys) {
       if (before[key] === undefined) delete process.env[key];
@@ -38,6 +50,9 @@ test("malformed credential is rejected without including it in the API response"
   const keys = [
     "OPENAI_API_KEY",
     "OPEN_AI",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
     "TURSO_DATABASE_URL",
     "TURSO_AUTH_TOKEN",
   ] as const;
@@ -45,6 +60,9 @@ test("malformed credential is rejected without including it in the API response"
   const malformed = "credential-placeholder\nextra-label-and-value";
   try {
     delete process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     process.env.OPEN_AI = malformed;
     process.env.TURSO_DATABASE_URL = "";
     process.env.TURSO_AUTH_TOKEN = "";

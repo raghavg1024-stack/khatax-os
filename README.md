@@ -37,7 +37,7 @@ Each AI extraction reads the current customer directory. Balance questions and s
 
 ## Technology
 
-Next.js App Router, TypeScript, React, Tailwind CSS, shadcn-style Radix components, Lucide, Recharts, SQLite, Prisma ORM, Zod, OpenAI Responses API Structured Outputs, Gnani Prisma v3.0 STT, and Gnani Timbre v3.0 TTS.
+Next.js App Router, TypeScript, React, Tailwind CSS, shadcn-style Radix components, Lucide, Recharts, SQLite, Prisma ORM, Zod, Gemini structured JSON output (or the existing OpenAI integration), Gnani Prisma v3.0 STT, and Gnani Timbre v3.0 TTS.
 
 Local voice uses a persistent Node HTTP/WebSocket server. Vercel uses its documented native Node WebSocket lifecycle with Fluid compute. Each recording is bounded; durable financial state always lives in the database.
 
@@ -54,8 +54,8 @@ npm ci
 Copy `.env.example` to `.env`. Keep `DATABASE_URL="file:./khatax.db"` for local SQLite. Put real API credentials in an ignored `.env.local` file:
 
 ```dotenv
-OPENAI_API_KEY="your-local-openai-key"
-OPENAI_MODEL="gpt-4.1-mini"
+GEMINI_API_KEY="your-local-gemini-key"
+GEMINI_MODEL="gemini-3.5-flash-lite"
 GNANI_API_KEY="your-local-gnani-key"
 GNANI_VOICE_ID="Shivani"
 ```
@@ -68,13 +68,13 @@ npm run dev
 
 Open **http://localhost:3000**. Initialization applies migrations and seeds labeled sample records only when the customer table is empty. It never resets an existing ledger. The default file is `prisma/khatax.db`. Restart after changing credentials.
 
-OpenAI and Gnani need separate keys. Keys stay on the server and are never `NEXT_PUBLIC_` variables. Production credentials belong in Vercel environment variables, not Git or the deployment source bundle.
+Gemini and Gnani need separate keys. Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey). Gemini takes precedence when configured; an existing `OPENAI_API_KEY` is used only when no Gemini key is set. Gemini quota and model access depend on the associated Google project. Keys stay on the server and are never `NEXT_PUBLIC_` variables. Production credentials belong in Vercel environment variables, not Git or the deployment source bundle.
 
-The server also accepts the Production aliases `OPEN_AI` and `GNANI_AI`. Canonical names take precedence if both forms exist. Sensitive values do not need to be copied or replaced to support these aliases.
+The server accepts `GOOGLE_GENERATIVE_AI_API_KEY` and `GOOGLE_API_KEY` as Gemini aliases, plus `OPEN_AI` and `GNANI_AI` for the earlier providers. Canonical names take precedence if both forms exist.
 
 ### Honest demo modes
 
-Without an OpenAI key, a limited local parser handles selected patterns and spoken numbers. Without a Gnani key, supported browsers can use SpeechRecognition/SpeechSynthesis, or the user can type. Both are labeled **demo**. Browser speech may use the browser vendor's online service and is not guaranteed offline.
+Without a configured LLM key, a limited local parser handles selected patterns and spoken numbers. Without a Gnani key, supported browsers can use SpeechRecognition/SpeechSynthesis, or the user can type. Both are labeled **demo**. Browser speech may use the browser vendor's online service and is not guaranteed offline.
 
 Full code-mixed intent extraction uses the LLM. A configured provider's failure is reported; the app does not pretend a demo fallback came from that provider. Provider settings show configuration, not a guarantee of a successful paid request.
 
@@ -154,9 +154,9 @@ The private source repository is [raghavg1024-stack/khatax-os](https://github.co
 
 The deployment configuration selects Mumbai, Node 24, native WebSockets, and external durable SQLite. Do not use `/tmp` or a bundled SQLite file as production storage. The initial resource selection is the free Turso Starter plan. Vercel Authentication protects the single-shop deployment without a complex application login system. [Deployment instructions](docs/DEPLOYMENT.md).
 
-The owner manages provider keys directly in Vercel's **Production** environment. Both canonical names and the configured `OPEN_AI` / `GNANI_AI` aliases are supported. After adding or changing a key, redeploy the project to activate it. Missing keys produce clearly labeled demo modes. Local provider keys were not uploaded.
+Provider keys are configured in Vercel's **Production** environment, either directly by the owner or through an explicitly authorized secure copy from an ignored local environment file. `GEMINI_API_KEY` selects Gemini ahead of OpenAI. After adding or changing a key, redeploy the project to activate it. Missing keys produce clearly labeled demo modes.
 
-Production build, TypeScript, financial integration tests, browser workflows, and rendered responsive checks passed locally. Gnani synthesis, streaming recognition, and browser audio decoding passed a live round-trip on 16 November 2026. OpenAI last returned `credit_balance_exhausted` / `insufficient_quota`; [add API credits](https://platform.openai.com/settings/organization/billing) for live LLM extraction. Deployment does not change account billing.
+Production build, TypeScript, financial integration tests, browser workflows, and rendered responsive checks passed locally. Gnani synthesis, streaming recognition, and browser audio decoding passed a live round-trip on 16 November 2026. OpenAI last returned `credit_balance_exhausted` / `insufficient_quota`. Configure `GEMINI_API_KEY` to use Gemini instead; its structured extraction and safe error handling are implemented and covered by automated tests. Live Gemini verification requires a key with available project quota. The OpenAI path remains optional and requires [API credits](https://platform.openai.com/settings/organization/billing). Deployment does not change account billing.
 
 ## Scope
 

@@ -180,22 +180,22 @@ try {
   console.log("Configured providers:", JSON.stringify(before.providers));
   const cases = [
     {
-      name: "OpenAI Hindi self-correction",
+      name: `${before.providers.llm} Hindi self-correction`,
       text: "Ravi ka paanch sau add karo, nahi teen sau pachaas.",
       expected: [["credit", 35000]],
     },
     {
-      name: "OpenAI Kannada-English",
+      name: `${before.providers.llm} Kannada-English`,
       text: "Ravi ge eradu nooru rupees udhaar add maadi.",
       expected: [["credit", 20000]],
     },
     {
-      name: "OpenAI Telugu",
+      name: `${before.providers.llm} Telugu`,
       text: "రవి ఖాతాలో మూడు వందల యాభై రూపాయల బాకీ జోడించు.",
       expected: [["credit", 35000]],
     },
     {
-      name: "OpenAI multiple actions",
+      name: `${before.providers.llm} multiple actions`,
       text: "Add 125.50 credit to Ravi and record a 50 rupee payment from Sunita.",
       expected: [
         ["credit", 12550],
@@ -203,7 +203,7 @@ try {
       ],
     },
     {
-      name: "OpenAI customer identity clarification",
+      name: `${before.providers.llm} customer identity clarification`,
       text: "Ramesh ka teen sau chaalis udhaar add karo.",
       ambiguous: true,
     },
@@ -215,9 +215,10 @@ try {
       try {
         assert.equal(
           preview.provider,
-          "OpenAI",
-          "Expected live OpenAI extraction",
+          before.providers.llm,
+          "Expected the configured live provider",
         );
+        assert.ok(["Gemini", "OpenAI"].includes(preview.provider), "A demo parser is not a live provider check");
         if (c.ambiguous) {
           assert.equal(
             preview.blocked,

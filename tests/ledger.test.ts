@@ -8,6 +8,9 @@ mkdirSync("test-results", { recursive: true });
 process.env.DATABASE_URL = `file:${resolve("test-results", `ledger-${Date.now()}.db`).replaceAll("\\", "/")}`;
 delete process.env.OPENAI_API_KEY;
 delete process.env.OPEN_AI;
+delete process.env.GEMINI_API_KEY;
+delete process.env.GOOGLE_API_KEY;
+delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 process.env.TURSO_DATABASE_URL = "";
 process.env.TURSO_AUTH_TOKEN = "";
 const migration = spawnSync(

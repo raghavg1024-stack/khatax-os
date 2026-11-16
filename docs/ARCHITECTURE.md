@@ -22,7 +22,7 @@ sequenceDiagram
     participant Voice as Node WebSocket session
     participant Gnani
     participant API as Next.js API
-    participant LLM as OpenAI
+    participant LLM as Gemini / optional OpenAI
     participant DB as SQLite / hosted SQLite
     Shopkeeper->>Browser: Speak a command
     Browser->>Voice: 16 kHz mono PCM frames
@@ -45,7 +45,7 @@ Typed input starts at the preview request and uses the same financial path. A ma
 
 ## What the AI does
 
-OpenAI receives the instruction, today's date in Asia/Kolkata, and the customer name/nickname directory. Structured Outputs constrain the result to an allowed list of intentions: `credit`, `payment`, `balance`, `summary`, `undo`, and `correct`.
+Gemini receives the instruction, today's date in Asia/Kolkata, and the customer name/nickname directory. The native REST request uses JSON Schema generated from the existing Zod extraction schema. The server rejects incomplete responses and validates the returned JSON again before producing intentions: `credit`, `payment`, `balance`, `summary`, `undo`, and `correct`. The previous OpenAI integration remains available when no Gemini key is configured; provider labels and persisted commands identify the path actually used.
 
 The model can propose the name, exact rupee amount as a string, date, note, and a clarification question. It cannot run SQL, call Prisma, change a balance, or authorize its own proposal. It has no database credentials and no financial execution tool.
 

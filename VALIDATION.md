@@ -54,3 +54,7 @@ The refreshed deployment reached Ready. Its authenticated provider checks confir
 - Financial entry counts and every customer balance remained unchanged throughout the checks.
 
 The hosted ledger and manual entry/review workflow remain available while OpenAI credits are exhausted. The app reports the billing error instead of presenting the request as successful AI processing.
+
+## Gemini migration
+
+Gemini structured extraction is implemented using native REST and the existing Zod action schema. Gemini takes precedence when its key is present; there is no silent provider fallback. The optimized production build, TypeScript, and five automated tests passed, including valid structured output, forbidden action kinds, invalid amount types, empty action lists, truncated output, safe quota/auth errors, provider selection, and the financial ledger lifecycle. Live Gemini verification still requires the owner to add `GEMINI_API_KEY`; mocked provider tests do not prove account quota or live model access.

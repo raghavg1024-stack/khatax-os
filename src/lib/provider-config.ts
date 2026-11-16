@@ -2,12 +2,25 @@
 export function openAIKey() {
   return (process.env.OPENAI_API_KEY || process.env.OPEN_AI)?.trim();
 }
+export function geminiKey() {
+  return (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+    process.env.GOOGLE_API_KEY
+  )?.trim();
+}
+export function llmProvider() {
+  return geminiKey() ? "Gemini" : openAIKey() ? "OpenAI" : "Local parser · demo";
+}
 export function gnaniKey() {
   return (process.env.GNANI_API_KEY || process.env.GNANI_AI)?.trim();
 }
 import { UserInputError } from "./errors";
 
-export function assertProviderKey(key: string, provider: "OpenAI" | "Gnani") {
+export function assertProviderKey(
+  key: string,
+  provider: "OpenAI" | "Gemini" | "Gnani",
+) {
   if (!/^[\x21-\x7e]+$/.test(key)) {
     throw new UserInputError(
       `${provider} key setting must contain only one API key on one line, without labels or other credentials. Update the Production setting and redeploy.`,
