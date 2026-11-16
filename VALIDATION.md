@@ -26,13 +26,13 @@ OpenAI authentication reaches the API, but requests return HTTP 429 with `credit
 
 Run `node scripts/diagnose-providers.mjs` for safe status/error-code diagnostics. Run `node scripts/verify-providers.mjs --speech-only` for the Gnani round-trip, or omit the flag to also test live multilingual LLM extraction. These checks use billable provider requests, keep credentials on the server, cancel all command previews, and leave financial entries unchanged.
 
-The app is intentionally scoped to one trusted local shop. Remote public access needs authentication, TLS, persistent storage, and tenant isolation before deployment.
+The app is scoped to one trusted shop. The Vercel deployment provides HTTPS, Vercel Authentication, and hosted SQLite persistence. A public service serving multiple shops still requires application accounts and tenant isolation.
 
 ## Hosted database verification
 
 The Turso Starter database is provisioned in Mumbai and connected to the Vercel project's Production environment. The existing 8 customers, 37 entries, and 37 audit events were imported with IDs and timestamps preserved. All five immutable/validation triggers were installed.
 
-Hosted Prisma reads, a write/read across independent database clients, rejection of entry updates, and atomic rollback passed. Verification writes only an internal health marker; it does not create financial transactions. Production provider keys remain the owner's manual configuration step.
+Hosted Prisma reads, a write/read across independent database clients, rejection of entry updates, and atomic rollback passed. Verification writes only an internal health marker; it does not create financial transactions. Production provider keys are stored as sensitive server-only environment variables.
 
 ## Deployed application verification
 
@@ -41,3 +41,16 @@ Production deployment `12cc4d0` reached Ready on Vercel in Mumbai. Authenticated
 The initial deployed verification reported local-parser/browser-speech demo providers while the owner configured the API keys directly in Vercel. No local OpenAI or Gnani keys were uploaded by the deployment process. The server now also supports the owner's sensitive `OPEN_AI` and `GNANI_AI` variable names without reading or replacing their values. Alias precedence and fallback are covered by a regression test.
 
 The deployed voice endpoint also passed a real HTTP-to-WebSocket upgrade and returned an explicit demo event while its provider key is absent. Local demo seeding uses a direct local SQLite client, so pulling production configuration cannot accidentally seed the hosted ledger.
+
+## Production provider verification — 17 November 2026
+
+With the owner's explicit authorization, the existing OpenAI and Gnani keys were copied from ignored `.env.local` into sensitive Production variables `OPENAI_API_KEY` and `GNANI_API_KEY`. Values were validated in memory, passed through stdin, and excluded from command output and Git. The temporary upload helper was removed afterward.
+
+The refreshed deployment reached Ready. Its authenticated provider checks confirmed:
+
+- OpenAI key formatting is valid and requests reach the API. Structured intent extraction is blocked by HTTP 429 / `openai_quota_exhausted`; API billing must be funded before live LLM verification can pass. Another key-format edit or redeployment will not fix this billing response.
+- Gnani Timbre speech generation returned HTTP 200 and a valid WAV audio container.
+- Gnani Prisma's Hindi streaming session upgraded to WebSocket and returned `connected` without a provider error. This verifies the deployed session setup, not physical microphone accuracy.
+- Financial entry counts and every customer balance remained unchanged throughout the checks.
+
+The hosted ledger and manual entry/review workflow remain available while OpenAI credits are exhausted. The app reports the billing error instead of presenting the request as successful AI processing.

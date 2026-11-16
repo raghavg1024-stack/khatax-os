@@ -50,7 +50,7 @@ For later schema-only updates, run `npm run db:hosted` without the import flag. 
 
 `npm run db:verify` checks hosted Prisma reads, persistence across independent database clients, immutable entries, and rollback without changing financial records. Automated local ledger/browser tests explicitly disable Turso so they cannot write to production.
 
-OpenAI and Gnani Production keys are added directly by the project owner. This deployment workflow does not upload the local provider keys.
+OpenAI and Gnani Production keys can be entered directly by the project owner or copied from an ignored local environment file with the owner's explicit authorization. Store them as sensitive server-only variables, pass values through stdin, and suppress credential-bearing command output. The repository does not automatically upload local keys during a build or Git push.
 
 ## Runtime details
 
