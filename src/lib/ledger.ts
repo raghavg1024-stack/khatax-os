@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { openAIKey, gnaniKey } from "./provider-config";
 import {
   dateSchema,
   indiaDate,
@@ -81,14 +82,10 @@ export async function snapshot() {
       };
     }),
     providers: {
-      llm: process.env.OPENAI_API_KEY ? "OpenAI" : "Local parser · demo",
-      stt: process.env.GNANI_API_KEY
-        ? "Gnani Prisma v3.0"
-        : "Browser speech · demo",
-      tts: process.env.GNANI_API_KEY
-        ? "Gnani Timbre v3.0"
-        : "Browser voice · demo",
-      gnaniVoice: !!process.env.GNANI_API_KEY,
+      llm: openAIKey() ? "OpenAI" : "Local parser · demo",
+      stt: gnaniKey() ? "Gnani Prisma v3.0" : "Browser speech · demo",
+      tts: gnaniKey() ? "Gnani Timbre v3.0" : "Browser voice · demo",
+      gnaniVoice: !!gnaniKey(),
     },
   };
 }

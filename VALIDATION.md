@@ -38,6 +38,6 @@ Hosted Prisma reads, a write/read across independent database clients, rejection
 
 Production deployment `12cc4d0` reached Ready on Vercel in Mumbai. Authenticated requests to the deployed API confirmed hosted SQLite, all 8 imported customers, preview without posting, a one-paise credit persisted across separate HTTP requests, and a linked reversal restoring the original customer balance. The two verification entries remain auditable, bringing the ledger to 39 entries. Foreign-origin mutations were rejected, and unauthenticated access was protected by Vercel Authentication.
 
-The deployed configuration currently reports local-parser/browser-speech demo providers because the owner chose to add the API keys directly in Vercel. No local OpenAI or Gnani keys were uploaded by the deployment process. Add those Production secrets and redeploy to enable the live providers.
+The initial deployed verification reported local-parser/browser-speech demo providers while the owner configured the API keys directly in Vercel. No local OpenAI or Gnani keys were uploaded by the deployment process. The server now also supports the owner's sensitive `OPEN_AI` and `GNANI_AI` variable names without reading or replacing their values. Alias precedence and fallback are covered by a regression test.
 
 The deployed voice endpoint also passed a real HTTP-to-WebSocket upgrade and returned an explicit demo event while its provider key is absent. Local demo seeding uses a direct local SQLite client, so pulling production configuration cannot accidentally seed the hosted ledger.

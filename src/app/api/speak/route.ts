@@ -1,12 +1,14 @@
 import { z } from "zod";
 import { finalizeWav } from "@/lib/audio";
+import { gnaniKey } from "@/lib/provider-config";
 export async function POST(req: Request) {
   if (
     req.headers.get("origin") &&
     req.headers.get("origin") !== new URL(req.url).origin
   )
     return Response.json({ error: "Invalid origin." }, { status: 403 });
-  if (!process.env.GNANI_API_KEY)
+  const apiKey = gnaniKey();
+  if (!apiKey)
     return Response.json(
       { error: "Gnani is not configured. Use browser voice demo mode." },
       { status: 503 },
@@ -26,7 +28,7 @@ export async function POST(req: Request) {
       {
         method: "POST",
         headers: {
-          "X-API-Key-ID": process.env.GNANI_API_KEY,
+          "X-API-Key-ID": apiKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

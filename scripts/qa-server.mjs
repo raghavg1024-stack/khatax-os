@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 mkdirSync("test-results", { recursive: true });
 process.env.DATABASE_URL = `file:${resolve("test-results", `browser-${Date.now()}.db`).replaceAll("\\", "/")}`;
 process.env.OPENAI_API_KEY = "";
+process.env.OPEN_AI = "";
+process.env.GNANI_AI = "";
 process.env.TURSO_DATABASE_URL = "";
 process.env.TURSO_AUTH_TOKEN = "";
 process.env.GNANI_API_KEY = "";

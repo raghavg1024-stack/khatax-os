@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { gnaniKey } from "./provider-config";
 
 /** One bounded Node.js voice session. No financial or conversation state lives in this process. */
 export function relayVoice(
@@ -10,7 +11,8 @@ export function relayVoice(
       if (client.readyState === WebSocket.OPEN)
         client.send(JSON.stringify(data));
     };
-    if (!process.env.GNANI_API_KEY) {
+    const apiKey = gnaniKey();
+    if (!apiKey) {
       send({
         type: "demo",
         message: "Gnani is not configured. Browser speech demo is available.",
@@ -27,7 +29,7 @@ export function relayVoice(
     // Provider contract: https://docs.gnani.ai/api/STT/stt-websocket
     const upstream = new WebSocket("wss://api.vachana.ai/stt/v3/stream", {
       headers: {
-        "x-api-key-id": process.env.GNANI_API_KEY,
+        "x-api-key-id": apiKey,
         model: "prisma-v3.0",
         language_code: language === "en-IN" ? "en-IN" : `${language},en-IN`,
         format: "codemix",

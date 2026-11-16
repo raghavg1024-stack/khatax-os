@@ -70,6 +70,8 @@ Open **http://localhost:3000**. Initialization applies migrations and seeds labe
 
 OpenAI and Gnani need separate keys. Keys stay on the server and are never `NEXT_PUBLIC_` variables. Production credentials belong in Vercel environment variables, not Git or the deployment source bundle.
 
+The server also accepts the Production aliases `OPEN_AI` and `GNANI_AI`. Canonical names take precedence if both forms exist. Sensitive values do not need to be copied or replaced to support these aliases.
+
 ### Honest demo modes
 
 Without an OpenAI key, a limited local parser handles selected patterns and spoken numbers. Without a Gnani key, supported browsers can use SpeechRecognition/SpeechSynthesis, or the user can type. Both are labeled **demo**. Browser speech may use the browser vendor's online service and is not guaranteed offline.
@@ -152,7 +154,7 @@ The private source repository is [raghavg1024-stack/khatax-os](https://github.co
 
 The deployment configuration selects Mumbai, Node 24, native WebSockets, and external durable SQLite. Do not use `/tmp` or a bundled SQLite file as production storage. The initial resource selection is the free Turso Starter plan. Vercel Authentication protects the single-shop deployment without a complex application login system. [Deployment instructions](docs/DEPLOYMENT.md).
 
-The owner is adding `OPENAI_API_KEY` and `GNANI_API_KEY` directly in Vercel's **Production** environment. Until those are added and the project is redeployed, the hosted app clearly uses the local parser/browser speech demo modes. Local provider keys were not uploaded.
+The owner manages provider keys directly in Vercel's **Production** environment. Both canonical names and the configured `OPEN_AI` / `GNANI_AI` aliases are supported. After adding or changing a key, redeploy the project to activate it. Missing keys produce clearly labeled demo modes. Local provider keys were not uploaded.
 
 Production build, TypeScript, financial integration tests, browser workflows, and rendered responsive checks passed locally. Gnani synthesis, streaming recognition, and browser audio decoding passed a live round-trip on 16 November 2026. OpenAI last returned `credit_balance_exhausted` / `insufficient_quota`; [add API credits](https://platform.openai.com/settings/organization/billing) for live LLM extraction. Deployment does not change account billing.
 

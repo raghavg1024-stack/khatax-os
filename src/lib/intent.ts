@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { openAIKey } from "./provider-config";
 import { zodTextFormat } from "openai/helpers/zod";
 import {
   extractionSchema,
@@ -179,13 +180,14 @@ export function localExtract(text: string): ExtractedAction[] {
   });
 }
 export async function extract(text: string) {
-  if (!process.env.OPENAI_API_KEY)
+  const apiKey = openAIKey();
+  if (!apiKey)
     return { actions: localExtract(text), provider: "Local parser · demo" };
   const customers = await db.customer.findMany({
     select: { name: true, nicknames: true },
   });
   const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey,
     timeout: 25000,
     maxRetries: 0,
   });
