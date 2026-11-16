@@ -4,6 +4,7 @@ import {
   openAIKey,
   gnaniKey,
   geminiKey,
+  nvidiaKey,
   llmProvider,
   assertProviderKey,
 } from "../src/lib/provider-config";
@@ -12,6 +13,8 @@ test("Production aliases resolve and canonical names take precedence", () => {
   const keys = [
     "OPENAI_API_KEY",
     "OPEN_AI",
+    "NVIDIA_API_KEY",
+    "NVIDIA_NIM_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -38,6 +41,11 @@ test("Production aliases resolve and canonical names take precedence", () => {
     process.env.GEMINI_API_KEY = "gemini-canonical-placeholder";
     assert.equal(geminiKey(), "gemini-canonical-placeholder");
     assert.equal(llmProvider(), "Gemini");
+    process.env.NVIDIA_NIM_API_KEY = "nvidia-alias-placeholder";
+    assert.equal(nvidiaKey(), "nvidia-alias-placeholder");
+    process.env.NVIDIA_API_KEY = "nvidia-canonical-placeholder";
+    assert.equal(nvidiaKey(), "nvidia-canonical-placeholder");
+    assert.equal(llmProvider(), "NVIDIA Nemotron");
   } finally {
     for (const key of keys) {
       if (before[key] === undefined) delete process.env[key];
@@ -50,6 +58,8 @@ test("malformed credential is rejected without including it in the API response"
   const keys = [
     "OPENAI_API_KEY",
     "OPEN_AI",
+    "NVIDIA_API_KEY",
+    "NVIDIA_NIM_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -60,6 +70,8 @@ test("malformed credential is rejected without including it in the API response"
   const malformed = "credential-placeholder\nextra-label-and-value";
   try {
     delete process.env.OPENAI_API_KEY;
+    delete process.env.NVIDIA_API_KEY;
+    delete process.env.NVIDIA_NIM_API_KEY;
     delete process.env.GEMINI_API_KEY;
     delete process.env.GOOGLE_API_KEY;
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;

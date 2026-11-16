@@ -58,3 +58,7 @@ The hosted ledger and manual entry/review workflow remain available while OpenAI
 ## Gemini migration
 
 Gemini structured extraction is implemented using native REST and the existing Zod action schema. Gemini takes precedence when its key is present; there is no silent provider fallback. The optimized production build, TypeScript, and five automated tests passed, including valid structured output, forbidden action kinds, invalid amount types, empty action lists, truncated output, safe quota/auth errors, provider selection, and the financial ledger lifecycle. Live Gemini verification still requires the owner to add `GEMINI_API_KEY`; mocked provider tests do not prove account quota or live model access.
+
+## NVIDIA Nemotron support
+
+NVIDIA Nemotron 3.5 Lightning is implemented through NVIDIA's hosted Chat Completions endpoint using the already-installed compatible SDK. An NVIDIA key takes precedence over Gemini and OpenAI. The native JSON-mode response is checked for successful completion and validated with the same Zod action schema before preview creation. All six automated tests and TypeScript pass, including NVIDIA request routing, thinking disabled, safe provider errors, rejected unknown financial actions, wrong amount types, empty action lists, and truncated responses. Live NVIDIA authentication, quota, and multilingual quality remain unverified until `NVIDIA_API_KEY` is filled in.

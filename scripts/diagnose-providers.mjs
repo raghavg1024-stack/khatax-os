@@ -5,9 +5,15 @@ const safeCode = (value) =>
     ? value
     : undefined;
 const geminiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY)?.trim();
+const nvidiaKey = (process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY)?.trim();
 await Promise.all(
   [
-    geminiKey ? [
+    nvidiaKey ? [
+      "NVIDIA Nemotron",
+      "https://integrate.api.nvidia.com/v1/chat/completions",
+      { Authorization: `Bearer ${nvidiaKey}`, "Content-Type": "application/json" },
+      { model: process.env.NVIDIA_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b", messages: [{role:"user",content:"Reply OK."}], max_tokens:64, chat_template_kwargs:{enable_thinking:false} },
+    ] : geminiKey ? [
       "Gemini",
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_MODEL || "gemini-3.5-flash-lite")}:generateContent`,
       { "x-goog-api-key": geminiKey, "Content-Type": "application/json" },

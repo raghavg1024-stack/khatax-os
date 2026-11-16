@@ -5,6 +5,8 @@ mkdirSync("test-results", { recursive: true });
 process.env.DATABASE_URL = `file:${resolve("test-results", `browser-${Date.now()}.db`).replaceAll("\\", "/")}`;
 process.env.OPENAI_API_KEY = "";
 process.env.OPEN_AI = "";
+process.env.NVIDIA_API_KEY = "";
+process.env.NVIDIA_NIM_API_KEY = "";
 process.env.GEMINI_API_KEY = "";
 process.env.GOOGLE_API_KEY = "";
 process.env.GOOGLE_GENERATIVE_AI_API_KEY = "";

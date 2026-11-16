@@ -9,8 +9,13 @@ export function geminiKey() {
     process.env.GOOGLE_API_KEY
   )?.trim();
 }
+export function nvidiaKey() {
+  return (process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY)?.trim();
+}
 export function llmProvider() {
-  return geminiKey() ? "Gemini" : openAIKey() ? "OpenAI" : "Local parser · demo";
+  return nvidiaKey()
+    ? "NVIDIA Nemotron"
+    : geminiKey() ? "Gemini" : openAIKey() ? "OpenAI" : "Local parser · demo";
 }
 export function gnaniKey() {
   return (process.env.GNANI_API_KEY || process.env.GNANI_AI)?.trim();
@@ -19,7 +24,7 @@ import { UserInputError } from "./errors";
 
 export function assertProviderKey(
   key: string,
-  provider: "OpenAI" | "Gemini" | "Gnani",
+  provider: "OpenAI" | "Gemini" | "NVIDIA" | "Gnani",
 ) {
   if (!/^[\x21-\x7e]+$/.test(key)) {
     throw new UserInputError(

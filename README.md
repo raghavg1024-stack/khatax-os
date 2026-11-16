@@ -37,7 +37,7 @@ Each AI extraction reads the current customer directory. Balance questions and s
 
 ## Technology
 
-Next.js App Router, TypeScript, React, Tailwind CSS, shadcn-style Radix components, Lucide, Recharts, SQLite, Prisma ORM, Zod, Gemini structured JSON output (or the existing OpenAI integration), Gnani Prisma v3.0 STT, and Gnani Timbre v3.0 TTS.
+Next.js App Router, TypeScript, React, Tailwind CSS, shadcn-style Radix components, Lucide, Recharts, SQLite, Prisma ORM, Zod, NVIDIA Nemotron validated JSON or Gemini structured output (with the existing OpenAI integration optional), Gnani Prisma v3.0 STT, and Gnani Timbre v3.0 TTS.
 
 Local voice uses a persistent Node HTTP/WebSocket server. Vercel uses its documented native Node WebSocket lifecycle with Fluid compute. Each recording is bounded; durable financial state always lives in the database.
 
@@ -54,6 +54,8 @@ npm ci
 Copy `.env.example` to `.env`. Keep `DATABASE_URL="file:./khatax.db"` for local SQLite. Put real API credentials in an ignored `.env.local` file:
 
 ```dotenv
+NVIDIA_API_KEY="your-local-nvidia-key"
+NVIDIA_MODEL="nvidia/nemotron-3.5-lightning-30b-a3b"
 GEMINI_API_KEY="your-local-gemini-key"
 GEMINI_MODEL="gemini-3.5-flash-lite"
 GNANI_API_KEY="your-local-gnani-key"
@@ -68,9 +70,9 @@ npm run dev
 
 Open **http://localhost:3000**. Initialization applies migrations and seeds labeled sample records only when the customer table is empty. It never resets an existing ledger. The default file is `prisma/khatax.db`. Restart after changing credentials.
 
-Gemini and Gnani need separate keys. Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey). Gemini takes precedence when configured; an existing `OPENAI_API_KEY` is used only when no Gemini key is set. Gemini quota and model access depend on the associated Google project. Keys stay on the server and are never `NEXT_PUBLIC_` variables. Production credentials belong in Vercel environment variables, not Git or the deployment source bundle.
+Fill only the LLM key(s) you intend to use; leave the others empty. A configured NVIDIA key takes precedence, followed by Gemini, then the existing OpenAI integration. NVIDIA defaults to [Nemotron 3.5 Lightning](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/build). Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey). Provider quota and model access depend on the corresponding account/project. Gnani uses a separate voice key. Keys stay on the server and are never `NEXT_PUBLIC_` variables. Production credentials belong in Vercel environment variables, not Git or the deployment source bundle.
 
-The server accepts `GOOGLE_GENERATIVE_AI_API_KEY` and `GOOGLE_API_KEY` as Gemini aliases, plus `OPEN_AI` and `GNANI_AI` for the earlier providers. Canonical names take precedence if both forms exist.
+The server accepts `NVIDIA_NIM_API_KEY` as an NVIDIA alias, `GOOGLE_GENERATIVE_AI_API_KEY` and `GOOGLE_API_KEY` as Gemini aliases, plus `OPEN_AI` and `GNANI_AI` for the earlier providers. Canonical names take precedence if both forms exist. A failed provider request returns an error; it does not silently switch providers.
 
 ### Honest demo modes
 
@@ -154,7 +156,7 @@ The private source repository is [raghavg1024-stack/khatax-os](https://github.co
 
 The deployment configuration selects Mumbai, Node 24, native WebSockets, and external durable SQLite. Do not use `/tmp` or a bundled SQLite file as production storage. The initial resource selection is the free Turso Starter plan. Vercel Authentication protects the single-shop deployment without a complex application login system. [Deployment instructions](docs/DEPLOYMENT.md).
 
-Provider keys are configured in Vercel's **Production** environment, either directly by the owner or through an explicitly authorized secure copy from an ignored local environment file. `GEMINI_API_KEY` selects Gemini ahead of OpenAI. After adding or changing a key, redeploy the project to activate it. Missing keys produce clearly labeled demo modes.
+Provider keys are configured in Vercel's **Production** environment, either directly by the owner or through an explicitly authorized secure copy from an ignored local environment file. `NVIDIA_API_KEY` selects Nemotron ahead of Gemini and OpenAI. After adding or changing a key, redeploy the project to activate it. Missing keys produce clearly labeled demo modes.
 
 Production build, TypeScript, financial integration tests, browser workflows, and rendered responsive checks passed locally. Gnani synthesis, streaming recognition, and browser audio decoding passed a live round-trip on 16 November 2026. OpenAI last returned `credit_balance_exhausted` / `insufficient_quota`. Configure `GEMINI_API_KEY` to use Gemini instead; its structured extraction and safe error handling are implemented and covered by automated tests. Live Gemini verification requires a key with available project quota. The OpenAI path remains optional and requires [API credits](https://platform.openai.com/settings/organization/billing). Deployment does not change account billing.
 

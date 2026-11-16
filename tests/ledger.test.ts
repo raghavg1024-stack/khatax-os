@@ -8,6 +8,8 @@ mkdirSync("test-results", { recursive: true });
 process.env.DATABASE_URL = `file:${resolve("test-results", `ledger-${Date.now()}.db`).replaceAll("\\", "/")}`;
 delete process.env.OPENAI_API_KEY;
 delete process.env.OPEN_AI;
+delete process.env.NVIDIA_API_KEY;
+delete process.env.NVIDIA_NIM_API_KEY;
 delete process.env.GEMINI_API_KEY;
 delete process.env.GOOGLE_API_KEY;
 delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;

@@ -218,7 +218,7 @@ try {
           before.providers.llm,
           "Expected the configured live provider",
         );
-        assert.ok(["Gemini", "OpenAI"].includes(preview.provider), "A demo parser is not a live provider check");
+        assert.ok(["NVIDIA Nemotron", "Gemini", "OpenAI"].includes(preview.provider), "A demo parser is not a live provider check");
         if (c.ambiguous) {
           assert.equal(
             preview.blocked,

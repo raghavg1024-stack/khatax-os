@@ -21,6 +21,8 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 | Variable             | Secret?              | Meaning                                        |
 | -------------------- | -------------------- | ---------------------------------------------- |
 | `DATABASE_URL`       | Local path/config    | Prisma CLI SQLite URL for local migration work |
+| `NVIDIA_API_KEY`     | Yes                  | Preferred Nemotron credential                  |
+| `NVIDIA_MODEL`       | No                   | Defaults to `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | `GEMINI_API_KEY`     | Yes                  | Preferred LLM credential                       |
 | `GEMINI_MODEL`       | No                   | Defaults to `gemini-3.5-flash-lite`             |
 | `TURSO_DATABASE_URL` | Server configuration | Hosted SQLite endpoint                         |
@@ -32,7 +34,7 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 
 Store production credentials in Vercel environment variables. Never put them in Git, `vercel.json`, a browser bundle, a screenshot, or a command-line argument. Environment files and local SQLite data are excluded from both Git and deployment uploads.
 
-Gemini takes precedence when `GEMINI_API_KEY` (or its `GOOGLE_GENERATIVE_AI_API_KEY` / `GOOGLE_API_KEY` aliases) is configured. With no Gemini key, the existing OpenAI integration is used. The server also accepts `OPEN_AI` and `GNANI_AI` as legacy names. Canonical names take precedence. Each value must contain only the key, without labels, internal whitespace, or additional credentials. A malformed value returns the safe `provider_configuration` error before calling the provider. Rebuild Production after saving a setting.
+Provider priority is NVIDIA, Gemini, then OpenAI, based on non-empty keys. NVIDIA accepts `NVIDIA_API_KEY` or `NVIDIA_NIM_API_KEY`. Gemini accepts `GEMINI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, or `GOOGLE_API_KEY`. The server also accepts `OPEN_AI` and `GNANI_AI` as legacy names. Canonical names take precedence. Each value must contain only the key, without labels, internal whitespace, or additional credentials. A malformed value returns the safe `provider_configuration` error before calling the provider. Rebuild Production after saving a setting.
 
 Production and preview should use separate databases when testing changes that write records. A preview must not run destructive setup against the production ledger. Schema initialization is a separate deliberate step, not a reset during every build.
 
@@ -86,6 +88,8 @@ If OpenAI returns `openai_quota_exhausted`, fund the key's API billing account b
 For Gemini, `gemini_rate_limited` means the request reached Google's rate/quota limit; check the project's quota in AI Studio. `gemini_configuration` means the key, model, or project access needs attention. The application does not silently fall back to OpenAI or label a local parse as Gemini. Responses must finish successfully and pass the same Zod schema before becoming a saved preview.
 
 References: [Gemini model](https://aistudio.google.com/docs/models/gemini-3.5-flash-lite), [structured output](https://aistudio.google.com/docs/structured-output), [REST API](https://aistudio.google.com/api-reference/generate-content).
+
+NVIDIA uses `https://integrate.api.nvidia.com/v1/chat/completions` through the existing OpenAI-compatible SDK. Nemotron 3.5 Lightning requests use the documented JSON mode with thinking disabled, include the action schema in the system instructions, and validate the completed output with Zod on the server. JSON mode alone is not schema enforcement. Incomplete output, unknown action kinds, malformed amounts, and provider errors cannot commit financial entries. Labels and saved previews identify `NVIDIA Nemotron`; failures do not silently switch to Gemini. See [NVIDIA's hosted model/API example](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/build) and [Lightning JSON-mode documentation](https://docs.nvidia.com/nim/large-language-models/2.0.10/get-started/advanced/get-started-nemotron-3.5-lightning.html).
 
 ## Updates and rollback
 
