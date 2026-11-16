@@ -1,7 +1,9 @@
 import nextEnv from "@next/env";
 nextEnv.loadEnvConfig(process.cwd());
 process.env.DATABASE_URL ||= "file:./khatax.db";
-const { db } = await import("../src/lib/db");
+// Demo seeding always targets the configured local SQLite file, never the hosted adapter.
+const { PrismaClient } = await import("@prisma/client");
+const db = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const { relativeDate } = await import("../src/lib/shared");
 const customers = [
   { name: "Ramesh Kumar", phone: "9876500001", nicknames: "Ramesh,Ramu,रमेश" },
