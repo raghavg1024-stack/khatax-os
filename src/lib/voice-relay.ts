@@ -42,7 +42,8 @@ export function relayVoice(
       headers: {
         "x-api-key-id": apiKey,
         model: "prisma-v3.0",
-        language_code: language === "en-IN" ? "en-IN" : `${language},en-IN`,
+        // A single language hint supports codemix; the live endpoint rejects comma-separated hints.
+        language_code: language,
         format: "codemix",
         "x-sample-rate": "16000",
         "x-min-silence-ms": "700",

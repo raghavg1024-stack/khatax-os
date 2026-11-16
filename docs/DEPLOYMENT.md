@@ -30,6 +30,8 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 
 Store production credentials in Vercel environment variables. Never put them in Git, `vercel.json`, a browser bundle, a screenshot, or a command-line argument. Environment files and local SQLite data are excluded from both Git and deployment uploads.
 
+The server also accepts `OPEN_AI` and `GNANI_AI` as legacy names. Canonical names take precedence, so update `OPENAI_API_KEY` when both OpenAI settings exist. Each value must contain only the key, without labels, internal whitespace, or additional credentials. A malformed value returns the safe `provider_configuration` error before calling the provider. Rebuild Production after saving a setting.
+
 Production and preview should use separate databases when testing changes that write records. A preview must not run destructive setup against the production ledger. Schema initialization is a separate deliberate step, not a reset during every build.
 
 ## Initialize the hosted ledger
@@ -56,6 +58,8 @@ The project uses Node 24 and `npm run build`. `vercel.json` selects Next.js and 
 
 Vercel's `upgradeWebSocket()` API handles the actual socket lifecycle. The shared relay does not depend on an HTTP handler staying alive after its request finishes. Durable state is stored in the database and is not tied to a particular Node instance.
 
+The relay sends the selected language as one `language_code` hint with `model=prisma-v3.0` and `format=codemix`. Although Gnani documents comma-separated language hints, the live endpoint rejected those hints during verification. Single-language sessions connected for English, Hindi, Kannada and Telugu. Keep the code-mixed output setting; do not interpret a successful handshake alone as a transcript-accuracy test.
+
 Reference: [Vercel WebSockets](https://vercel.com/docs/functions/websockets), [upgradeWebSocket API](https://vercel.com/docs/functions/functions-api-reference/vercel-functions-package#upgradewebsocket), [Prisma with Turso](https://www.prisma.io/docs/orm/v6/overview/databases/turso).
 
 ## Access protection
@@ -75,7 +79,7 @@ Turning production protection off makes the one shared shop and its paid API ope
 7. Verify provider errors are honest: billing errors must not be reported as a successful AI transaction.
 8. Confirm unauthenticated access is protected and secrets are absent from the source upload.
 
-OpenAI returned `credit_balance_exhausted` during the last live check. This requires funding the key's API billing account; deploying the same key does not remove that condition. Gnani synthesis, streaming recognition, and browser audio decoding passed the local live-provider checks.
+If OpenAI returns `openai_quota_exhausted`, fund the key's API billing account before retrying; redeployment does not remove that condition. If it returns `provider_configuration`, correct the Production key value and rebuild. Gnani synthesis, streaming recognition, and browser audio decoding passed the local live-provider checks; verify the owner's Production credentials separately.
 
 ## Updates and rollback
 
