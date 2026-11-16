@@ -33,3 +33,9 @@ The app is intentionally scoped to one trusted local shop. Remote public access 
 The Turso Starter database is provisioned in Mumbai and connected to the Vercel project's Production environment. The existing 8 customers, 37 entries, and 37 audit events were imported with IDs and timestamps preserved. All five immutable/validation triggers were installed.
 
 Hosted Prisma reads, a write/read across independent database clients, rejection of entry updates, and atomic rollback passed. Verification writes only an internal health marker; it does not create financial transactions. Production provider keys remain the owner's manual configuration step.
+
+## Deployed application verification
+
+Production deployment `12cc4d0` reached Ready on Vercel in Mumbai. Authenticated requests to the deployed API confirmed hosted SQLite, all 8 imported customers, preview without posting, a one-paise credit persisted across separate HTTP requests, and a linked reversal restoring the original customer balance. The two verification entries remain auditable, bringing the ledger to 39 entries. Foreign-origin mutations were rejected, and unauthenticated access was protected by Vercel Authentication.
+
+The deployed configuration currently reports local-parser/browser-speech demo providers because the owner chose to add the API keys directly in Vercel. No local OpenAI or Gnani keys were uploaded by the deployment process. Add those Production secrets and redeploy to enable the live providers.

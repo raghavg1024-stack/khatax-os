@@ -2,6 +2,8 @@
 
 ### One Voice. Every Transaction. Any Language.
 
+**[Open the deployed app](https://khatax-os.vercel.app)** — sign in with the owner's Vercel account. The deployment uses persistent hosted SQLite.
+
 A working multilingual voice operating system for Indian kirana stores. Speak or type an instruction, review what was understood, resolve uncertainty, and record it in an auditable financial ledger.
 
 **The AI understands the instruction. Deterministic code controls the money. The database remembers the shop.**
@@ -146,9 +148,11 @@ node scripts/verify-providers.mjs
 
 ## Deployment and verification status
 
-The private source repository is [raghavg1024-stack/khatax-os](https://github.com/raghavg1024-stack/khatax-os). The Vercel project is in the owner's `mugiwara` team. Hosted SQLite provisioning and cloud verification must finish before the website is considered deployed; local success is not evidence of cloud persistence.
+The private source repository is [raghavg1024-stack/khatax-os](https://github.com/raghavg1024-stack/khatax-os). Production is deployed at **https://khatax-os.vercel.app** in the owner's `mugiwara` team. Hosted SQLite is provisioned, migrated, and verified through the deployed API. A one-paise test credit persisted across requests, and its confirmed reversal restored the original balance while preserving the audit history.
 
 The deployment configuration selects Mumbai, Node 24, native WebSockets, and external durable SQLite. Do not use `/tmp` or a bundled SQLite file as production storage. The initial resource selection is the free Turso Starter plan. Vercel Authentication protects the single-shop deployment without a complex application login system. [Deployment instructions](docs/DEPLOYMENT.md).
+
+The owner is adding `OPENAI_API_KEY` and `GNANI_API_KEY` directly in Vercel's **Production** environment. Until those are added and the project is redeployed, the hosted app clearly uses the local parser/browser speech demo modes. Local provider keys were not uploaded.
 
 Production build, TypeScript, financial integration tests, browser workflows, and rendered responsive checks passed locally. Gnani synthesis, streaming recognition, and browser audio decoding passed a live round-trip on 16 November 2026. OpenAI last returned `credit_balance_exhausted` / `insufficient_quota`; [add API credits](https://platform.openai.com/settings/organization/billing) for live LLM extraction. Deployment does not change account billing.
 

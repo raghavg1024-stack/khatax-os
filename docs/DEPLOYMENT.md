@@ -1,5 +1,7 @@
 # Deploying KhataX OS
 
+Production: **https://khatax-os.vercel.app**. Source: [private GitHub repository](https://github.com/raghavg1024-stack/khatax-os). Vercel Authentication protects the site; use the owner's Vercel login.
+
 The Vercel deployment uses Next.js, a hosted SQLite database, and native Node WebSocket sessions. Local development retains the custom persistent Node server and local SQLite option.
 
 ## Deployment resources
@@ -29,8 +31,6 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 Store production credentials in Vercel environment variables. Never put them in Git, `vercel.json`, a browser bundle, a screenshot, or a command-line argument. Environment files and local SQLite data are excluded from both Git and deployment uploads.
 
 Production and preview should use separate databases when testing changes that write records. A preview must not run destructive setup against the production ledger. Schema initialization is a separate deliberate step, not a reset during every build.
-
-## Build and runtime
 
 ## Initialize the hosted ledger
 
