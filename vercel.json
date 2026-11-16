@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci",
+  "regions": ["bom1"],
+  "fluid": true,
+  "functions": {
+    "src/app/api/voice/route.ts": { "maxDuration": 180 },
+    "src/app/api/actions/route.ts": { "maxDuration": 60 },
+    "src/app/api/speak/route.ts": { "maxDuration": 45 }
+  }
+}

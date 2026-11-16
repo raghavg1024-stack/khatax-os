@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "sqlite"
+  url = env("DATABASE_URL")
+}
+model Customer {
+  id String @id @default(cuid())
+  name String
+  phone String @default("")
+  nicknames String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  entries Entry[]
+}
+model Entry {
+  id String @id @default(cuid())
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id])
+  kind String
+  amountPaise Int
+  note String @default("")
+  source String @default("manual")
+  occurredOn String
+  createdAt DateTime @default(now())
+  reversesId String? @unique
+  reverses Entry? @relation("Reversal", fields: [reversesId], references: [id])
+  reversedBy Entry? @relation("Reversal")
+  batchId String?
+  @@index([customerId, occurredOn])
+  @@index([createdAt])
+}
+model Audit {
+  id String @id @default(cuid())
+  event String
+  entityId String
+  detail String
+  createdAt DateTime @default(now())
+}
+model Command {
+  id String @id @default(cuid())
+  transcript String
+  actions String
+  warnings String
+  provider String
+  state String @default("pending")
+  createdAt DateTime @default(now())
+}
