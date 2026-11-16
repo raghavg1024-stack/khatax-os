@@ -32,6 +32,26 @@ Production and preview should use separate databases when testing changes that w
 
 ## Build and runtime
 
+## Initialize the hosted ledger
+
+After connecting the Turso resource to the Vercel project, pull its configuration into an ignored file:
+
+```bash
+vercel env pull .env.production.local --environment production --yes
+npm run db:hosted -- --import-local
+npm run db:verify
+```
+
+The import is optional and only accepts an empty hosted ledger. It preserves local IDs, timestamps, reversal links, command records, and audit records. A recorded checksum makes repeating the same import safe; it refuses changed source data rather than overwriting hosted financial records. Do not use it as a two-way synchronization mechanism.
+
+For later schema-only updates, run `npm run db:hosted` without the import flag. SQL migrations are applied transactionally, checksummed, and recorded in `_KhataXMigrations`. The runtime uses the Prisma libSQL adapter with `unixepoch-ms` timestamps to remain compatible with the existing native SQLite data.
+
+`npm run db:verify` checks hosted Prisma reads, persistence across independent database clients, immutable entries, and rollback without changing financial records. Automated local ledger/browser tests explicitly disable Turso so they cannot write to production.
+
+OpenAI and Gnani Production keys are added directly by the project owner. This deployment workflow does not upload the local provider keys.
+
+## Runtime details
+
 The project uses Node 24 and `npm run build`. `vercel.json` selects Next.js and Fluid compute in Mumbai. The voice route has a three-minute function budget and closes each recording after two minutes, leaving time for cleanup. HTTP extraction and speech synthesis have shorter limits.
 
 Vercel's `upgradeWebSocket()` API handles the actual socket lifecycle. The shared relay does not depend on an HTTP handler staying alive after its request finishes. Durable state is stored in the database and is not tied to a particular Node instance.

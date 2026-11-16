@@ -27,3 +27,9 @@ OpenAI authentication reaches the API, but requests return HTTP 429 with `credit
 Run `node scripts/diagnose-providers.mjs` for safe status/error-code diagnostics. Run `node scripts/verify-providers.mjs --speech-only` for the Gnani round-trip, or omit the flag to also test live multilingual LLM extraction. These checks use billable provider requests, keep credentials on the server, cancel all command previews, and leave financial entries unchanged.
 
 The app is intentionally scoped to one trusted local shop. Remote public access needs authentication, TLS, persistent storage, and tenant isolation before deployment.
+
+## Hosted database verification
+
+The Turso Starter database is provisioned in Mumbai and connected to the Vercel project's Production environment. The existing 8 customers, 37 entries, and 37 audit events were imported with IDs and timestamps preserved. All five immutable/validation triggers were installed.
+
+Hosted Prisma reads, a write/read across independent database clients, rejection of entry updates, and atomic rollback passed. Verification writes only an internal health marker; it does not create financial transactions. Production provider keys remain the owner's manual configuration step.

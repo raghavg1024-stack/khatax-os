@@ -1466,7 +1466,7 @@ export default function Workbench() {
             <footer className="workspace-footer">
               <span>
                 <Database size={13} />
-                Saved in local SQLite
+                Saved in {data.storage.toLowerCase()}
               </span>
               <span>
                 Sample data for demonstration{" "}
@@ -1676,14 +1676,14 @@ export default function Workbench() {
           </div>
         </div>
         <p className="setup-note">
-          Add your OpenAI and Gnani keys to the project’s{" "}
-          <code>.env.local</code> file, then restart the server. Browser speech
-          and the limited local parser are labeled demo modes. Full code-mixed
-          understanding uses the LLM.
+          Add your OpenAI and Gnani keys to Vercel’s Production environment, or
+          the local <code>.env.local</code> file for development. Redeploy or
+          restart after changes. Browser speech and the limited local parser are
+          labeled demo modes. Full code-mixed understanding uses the LLM.
         </p>
         <p className="setup-note">
-          This is a local, single-shop hackathon build. Sample customers and
-          entries are labeled in the ledger. New entries persist in SQLite.
+          This is a single-shop hackathon build. Sample customers and entries
+          are labeled in the ledger. New entries persist in SQLite.
         </p>
         <Button variant="outline" onClick={() => setSettings(false)}>
           Back to my khata

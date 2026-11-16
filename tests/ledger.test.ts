@@ -7,6 +7,8 @@ import { spawnSync } from "node:child_process";
 mkdirSync("test-results", { recursive: true });
 process.env.DATABASE_URL = `file:${resolve("test-results", `ledger-${Date.now()}.db`).replaceAll("\\", "/")}`;
 delete process.env.OPENAI_API_KEY;
+process.env.TURSO_DATABASE_URL = "";
+process.env.TURSO_AUTH_TOKEN = "";
 const migration = spawnSync(
   process.execPath,
   ["node_modules/prisma/build/index.js", "migrate", "deploy"],

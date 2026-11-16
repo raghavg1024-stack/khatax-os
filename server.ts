@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { relayVoice } from "./src/lib/voice-relay";
 
-nextEnv.loadEnvConfig(process.cwd());
+nextEnv.loadEnvConfig(process.cwd(), !process.argv.includes("--production"));
 process.env.DATABASE_URL ||= "file:./khatax.db";
 const dev = !process.argv.includes("--production");
 const port = Number(process.env.PORT || 3000);

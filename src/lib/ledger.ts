@@ -45,6 +45,7 @@ export async function snapshot() {
   const active = entries.filter((e) => !e.reversesId && !e.reversedBy);
   const today = indiaDate();
   return {
+    storage: process.env.TURSO_DATABASE_URL ? "Hosted SQLite" : "Local SQLite",
     customers: mapped,
     entries,
     audits,

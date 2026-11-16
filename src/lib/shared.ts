@@ -100,6 +100,7 @@ export type Snapshot = {
   chart: { date: string; label: string; credit: number; payment: number }[];
   providers: { llm: string; stt: string; tts: string; gnaniVoice: boolean };
   today: string;
+  storage: "Hosted SQLite" | "Local SQLite";
 };
 export type Preview = {
   id: string;
