@@ -63,6 +63,7 @@ test("malformed credential is rejected without including it in the API response"
         body: JSON.stringify({ op: "preview", text: "Ravi 350 credit" }),
       }),
     );
+    assert.ok(response);
     const body = await response.json();
     assert.equal(response.status, 400);
     assert.equal(body.code, "provider_configuration");
