@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UserInputError } from "./errors";
 
 export const money = (paise: number) =>
   new Intl.NumberFormat("en-IN", {
@@ -20,11 +21,13 @@ export function relativeDate(days: number) {
 }
 export function toPaise(value: string) {
   if (!/^\d{1,7}(\.\d{1,2})?$/.test(value.trim()))
-    throw new Error("Enter an amount with at most two decimal places.");
+    throw new UserInputError(
+      "Enter an amount with at most two decimal places.",
+    );
   const [rupees, paise = ""] = value.trim().split(".");
   const amount = Number(rupees) * 100 + Number(paise.padEnd(2, "0"));
   if (amount <= 0 || amount > 100000000)
-    throw new Error("Amount must be between ₹0.01 and ₹10,00,000.");
+    throw new UserInputError("Amount must be between ₹0.01 and ₹10,00,000.");
   return amount;
 }
 export const dateSchema = z

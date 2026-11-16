@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { UserInputError } from "./errors";
 import { openAIKey, gnaniKey } from "./provider-config";
 import {
   dateSchema,
@@ -323,23 +324,27 @@ export async function commit(commandId: string, acknowledge: boolean) {
           idempotent: true,
         };
       if (command.state !== "pending")
-        throw new Error("This command is no longer available.");
+        throw new UserInputError("This command is no longer available.");
       if (Date.now() - command.createdAt.getTime() > 15 * 60 * 1000)
-        throw new Error("This preview expired. Review your command again.");
+        throw new UserInputError(
+          "This preview expired. Review your command again.",
+        );
       const actions = JSON.parse(command.actions) as ResolvedAction[];
       if (actions.some((a) => a.needsClarification))
-        throw new Error("Resolve the clarification before recording.");
+        throw new UserInputError("Resolve the clarification before recording.");
       if ((JSON.parse(command.warnings) as string[]).length && !acknowledge)
-        throw new Error("Please acknowledge the safety checks.");
+        throw new UserInputError("Please acknowledge the safety checks.");
       const claim = await tx.command.updateMany({
         where: { id: commandId, state: "pending" },
         data: { state: "posted" },
       });
-      if (!claim.count) throw new Error("This command was already processed.");
+      if (!claim.count)
+        throw new UserInputError("This command was already processed.");
       let count = 0;
       for (const action of actions) {
         if (["balance", "summary"].includes(action.kind)) continue;
-        if (!action.customerId) throw new Error("Customer is required.");
+        if (!action.customerId)
+          throw new UserInputError("Customer is required.");
         if (["undo", "correct"].includes(action.kind)) {
           const target = await tx.entry.findUnique({
             where: { id: action.targetId },
@@ -351,7 +356,7 @@ export async function commit(commandId: string, acknowledge: boolean) {
             target.reversesId ||
             target.customerId !== action.customerId
           )
-            throw new Error(
+            throw new UserInputError(
               "The original transaction has changed. Review again.",
             );
           const reversal = await tx.entry.create({
@@ -411,7 +416,7 @@ export async function commit(commandId: string, acknowledge: boolean) {
             },
           });
           if (duplicate && !acknowledge)
-            throw new Error(
+            throw new UserInputError(
               "A possible duplicate appeared since preview. Review again and acknowledge the warning.",
             );
           const entry = await tx.entry.create({

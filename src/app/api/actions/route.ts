@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UserInputError } from "@/lib/errors";
 import { db } from "@/lib/db";
 import { audit, commit, prepare } from "@/lib/ledger";
 import { extract } from "@/lib/intent";
@@ -130,7 +131,7 @@ export async function POST(req: Request) {
         where: { id: body.commandId },
       });
       if (command.state !== "pending")
-        throw new Error("This command is no longer pending.");
+        throw new UserInputError("This command is no longer pending.");
       const result = await prepare(
         command.transcript,
         JSON.parse(command.actions) as ExtractedAction[],
@@ -160,7 +161,7 @@ export async function POST(req: Request) {
         include: { customer: true, reversedBy: true },
       });
       if (entry.reversesId || entry.reversedBy)
-        throw new Error("This entry is already reversed.");
+        throw new UserInputError("This entry is already reversed.");
       const action: ResolvedAction = {
         kind: "undo",
         customerId: entry.customerId,
@@ -194,6 +195,11 @@ export async function POST(req: Request) {
       });
     }
   } catch (error) {
+    if (error instanceof UserInputError)
+      return Response.json(
+        { error: error.message, code: error.code },
+        { status: 400 },
+      );
     if (error instanceof z.ZodError)
       return Response.json(
         { error: error.issues.map((i) => i.message).join(" ") },
@@ -238,9 +244,7 @@ export async function POST(req: Request) {
     return Response.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Could not process the request. Try again.",
+          "Could not process the request. Check provider configuration or try a manual entry.",
       },
       { status: 400 },
     );

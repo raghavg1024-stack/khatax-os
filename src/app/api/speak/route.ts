@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { finalizeWav } from "@/lib/audio";
-import { gnaniKey } from "@/lib/provider-config";
+import { gnaniKey, assertProviderKey } from "@/lib/provider-config";
 export async function POST(req: Request) {
   if (
     req.headers.get("origin") &&
@@ -14,6 +14,7 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   try {
+    assertProviderKey(apiKey, "Gnani");
     const { text, language } = z
       .object({
         text: z.string().min(1).max(700),

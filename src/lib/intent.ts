@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { openAIKey } from "./provider-config";
+import { openAIKey, assertProviderKey } from "./provider-config";
+import { UserInputError } from "./errors";
 import { zodTextFormat } from "openai/helpers/zod";
 import {
   extractionSchema,
@@ -183,6 +184,7 @@ export async function extract(text: string) {
   const apiKey = openAIKey();
   if (!apiKey)
     return { actions: localExtract(text), provider: "Local parser · demo" };
+  assertProviderKey(apiKey, "OpenAI");
   const customers = await db.customer.findMany({
     select: { name: true, nicknames: true },
   });
@@ -204,7 +206,7 @@ export async function extract(text: string) {
     text: { format: zodTextFormat(extractionSchema, "ledger_intentions") },
   });
   if (!response.output_parsed)
-    throw new Error(
+    throw new UserInputError(
       "The AI could not confidently understand that. Rephrase or use a manual entry.",
     );
   return {

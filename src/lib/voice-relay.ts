@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { gnaniKey } from "./provider-config";
+import { gnaniKey, assertProviderKey } from "./provider-config";
 
 /** One bounded Node.js voice session. No financial or conversation state lives in this process. */
 export function relayVoice(
@@ -16,6 +16,17 @@ export function relayVoice(
       send({
         type: "demo",
         message: "Gnani is not configured. Browser speech demo is available.",
+      });
+      client.close();
+      resolve();
+      return;
+    }
+    try {
+      assertProviderKey(apiKey, "Gnani");
+    } catch {
+      send({
+        type: "error",
+        message: "Gnani key setting must contain only one key on one line.",
       });
       client.close();
       resolve();
@@ -42,15 +53,29 @@ export function relayVoice(
     upstream.on("message", (raw) => {
       try {
         const event = JSON.parse(raw.toString());
+        if (event.type === "error") {
+          send({
+            type: "error",
+            code: "gnani_stt_error",
+            message:
+              "Gnani speech recognition could not process this session. Check STT access and provider limits.",
+          });
+          return;
+        }
         if (event.type === "connected") ready = true;
         send(event);
       } catch {
         send({ type: "error", message: "Invalid speech provider response." });
       }
     });
-    upstream.on("error", () => {
+    upstream.on("error", (error) => {
+      const status = /Unexpected server response: (\d{3})/.exec(
+        error.message,
+      )?.[1];
       send({
         type: "error",
+        code: "gnani_connection_failed",
+        ...(status ? { status: Number(status) } : {}),
         message: "Gnani connection failed. Check your key and connectivity.",
       });
       client.close();
