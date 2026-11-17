@@ -15,7 +15,7 @@ A working multilingual voice operating system for Indian kirana stores. Speak or
 | Module           | Working capabilities                                                                                                                                                                |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **KhataX**       | Customer create/edit/search; credit and payments; outstanding/advance balances; history and filters; daily totals; charts; CSV export                                               |
-| **BhashaBridge** | Gnani Prisma v3.0 streaming recognition; Hindi-English, Kannada-English, Telugu-English, and English intent extraction; spoken amounts; relative dates; nicknames; self-corrections |
+| **BhashaBridge** | Sarvam Saaras v4 recognition for all 22 scheduled Indian languages plus English and auto-detection; Gemini language understanding with Nemotron plan review; spoken amounts, relative dates, nicknames, corrections |
 | **KhataGuard**   | Amount/date clarification; identity selection; duplicate and advance warnings; explicit confirmation; undo/correction; immutable financial and audit history                        |
 | **DukaanOS**     | Multi-action instructions, balance/summary questions, review, optional Gnani Timbre v3.0 spoken replies                                                                             |
 
@@ -26,6 +26,7 @@ Manual and voice entries use the same financial rules. Posting, editing customer
 - [Architecture and voice-to-ledger sequence](docs/ARCHITECTURE.md)
 - [Database tables, durable AI memory, paise arithmetic, reversals, and transactions](docs/DATABASE.md)
 - [Vercel deployment, hosted SQLite, environments, and access protection](docs/DEPLOYMENT.md)
+- [All 22 scheduled languages, English, provider coverage, and verification limits](docs/LANGUAGES.md)
 - [Five-minute hackathon demo](docs/DEMO.md)
 - [Tests, live-provider verification, and remaining limitations](VALIDATION.md)
 
@@ -37,7 +38,7 @@ Each AI extraction reads the current customer directory. Balance questions and s
 
 ## Technology
 
-Next.js App Router, TypeScript, React, Tailwind CSS, shadcn-style Radix components, Lucide, Recharts, SQLite, Prisma ORM, Zod, NVIDIA Nemotron validated JSON or Gemini structured output (with the existing OpenAI integration optional), Gnani Prisma v3.0 STT, and Gnani Timbre v3.0 TTS.
+Next.js App Router, TypeScript, React, Tailwind CSS, shadcn-style Radix components, Lucide, Recharts, SQLite, Prisma ORM, Zod, Gemini BhashaBridge understanding, NVIDIA Nemotron 3.5 Lightning plan review, Sarvam Saaras v4 STT, and Gnani Timbre v3.0 TTS. Gnani's supported STT subset and the prior OpenAI integration remain available as explicitly configured alternatives.
 
 Local voice uses a persistent Node HTTP/WebSocket server. Vercel uses its documented native Node WebSocket lifecycle with Fluid compute. Each recording is bounded; durable financial state always lives in the database.
 
@@ -54,6 +55,8 @@ npm ci
 Copy `.env.example` to `.env`. Keep `DATABASE_URL="file:./khatax.db"` for local SQLite. Put real API credentials in an ignored `.env.local` file:
 
 ```dotenv
+SARVAM_API_KEY="your-local-sarvam-key"
+SARVAM_STT_MODEL="saaras:v4"
 NVIDIA_API_KEY="your-local-nvidia-key"
 NVIDIA_MODEL="nvidia/nemotron-3.5-lightning-30b-a3b"
 GEMINI_API_KEY="your-local-gemini-key"
@@ -70,13 +73,13 @@ npm run dev
 
 Open **http://localhost:3000**. Initialization applies migrations and seeds labeled sample records only when the customer table is empty. It never resets an existing ledger. The default file is `prisma/khatax.db`. Restart after changing credentials.
 
-Fill only the LLM key(s) you intend to use; leave the others empty. A configured NVIDIA key takes precedence, followed by Gemini, then the existing OpenAI integration. NVIDIA defaults to [Nemotron 3.5 Lightning](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/build). Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey). Provider quota and model access depend on the corresponding account/project. Gnani uses a separate voice key. Keys stay on the server and are never `NEXT_PUBLIC_` variables. Production credentials belong in Vercel environment variables, not Git or the deployment source bundle.
+With NVIDIA and Gemini keys configured together, Gemini understands the original language and Nemotron reviews the normalized plan using schema-constrained JSON. Server code blocks action/amount/date disagreement. A single configured key uses that provider alone; OpenAI remains a legacy option. NVIDIA defaults to [Nemotron 3.5 Lightning](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/build). Create a Gemini key in [Google AI Studio](https://aistudio.google.com/apikey). Sarvam supplies the full 22-language speech catalog; Gnani supplies spoken replies and an alternative smaller recognition subset. Keys stay on the server and are never `NEXT_PUBLIC_` variables. Production credentials belong in Vercel environment variables, not Git or the deployment source bundle.
 
 The server accepts `NVIDIA_NIM_API_KEY` as an NVIDIA alias, `GOOGLE_GENERATIVE_AI_API_KEY` and `GOOGLE_API_KEY` as Gemini aliases, plus `OPEN_AI` and `GNANI_AI` for the earlier providers. Canonical names take precedence if both forms exist. A failed provider request returns an error; it does not silently switch providers.
 
 ### Honest demo modes
 
-Without a configured LLM key, a limited local parser handles selected patterns and spoken numbers. Without a Gnani key, supported browsers can use SpeechRecognition/SpeechSynthesis, or the user can type. Both are labeled **demo**. Browser speech may use the browser vendor's online service and is not guaranteed offline.
+Without a configured LLM key, a limited local parser handles selected patterns and spoken numbers. Without server recognition keys, supported browsers can use SpeechRecognition, or the user can type; missing Gnani TTS uses browser speech replies. These alternatives are labeled **demo**. Browser speech may use the browser vendor's online service and is not guaranteed offline.
 
 Full code-mixed intent extraction uses the LLM. A configured provider's failure is reported; the app does not pretend a demo fallback came from that provider. Provider settings show configuration, not a guarantee of a successful paid request.
 
@@ -150,15 +153,17 @@ node scripts/verify-providers.mjs --speech-only --browser
 node scripts/verify-providers.mjs
 ```
 
+For a compiled predeployment provider test against a fresh isolated SQLite ledger, run `node scripts/qa-server.mjs --live-providers` (port 3003), then set `VERIFY_URL=http://localhost:3003` when running `scripts/verify-providers.mjs --browser`. This explicit mode uses local provider credentials but still disables the hosted database. Default browser QA on port 3001 disables all provider credentials as well.
+
 ## Deployment and verification status
 
 The private source repository is [raghavg1024-stack/khatax-os](https://github.com/raghavg1024-stack/khatax-os). Production is deployed at **https://khatax-os.vercel.app** in the owner's `mugiwara` team. Hosted SQLite is provisioned, migrated, and verified through the deployed API. A one-paise test credit persisted across requests, and its confirmed reversal restored the original balance while preserving the audit history.
 
 The deployment configuration selects Mumbai, Node 24, native WebSockets, and external durable SQLite. Do not use `/tmp` or a bundled SQLite file as production storage. The initial resource selection is the free Turso Starter plan. Vercel Authentication protects the single-shop deployment without a complex application login system. [Deployment instructions](docs/DEPLOYMENT.md).
 
-Provider keys are configured in Vercel's **Production** environment, either directly by the owner or through an explicitly authorized secure copy from an ignored local environment file. `NVIDIA_API_KEY` selects Nemotron ahead of Gemini and OpenAI. After adding or changing a key, redeploy the project to activate it. Missing keys produce clearly labeled demo modes.
+Provider keys are configured in Vercel's **Production** environment, either directly by the owner or through an explicitly authorized secure copy from an ignored local environment file. The interface identifies both models when the Gemini/Nemotron pipeline is used. Sarvam takes recognition priority when configured. After adding or changing a key, redeploy the project to activate it. Missing keys produce clearly labeled demo modes.
 
-Production build, TypeScript, financial integration tests, browser workflows, and rendered responsive checks passed locally. Gnani synthesis, streaming recognition, and browser audio decoding passed a live round-trip on 16 November 2026. OpenAI last returned `credit_balance_exhausted` / `insufficient_quota`. Configure `GEMINI_API_KEY` to use Gemini instead; its structured extraction and safe error handling are implemented and covered by automated tests. Live Gemini verification requires a key with available project quota. The OpenAI path remains optional and requires [API credits](https://platform.openai.com/settings/organization/billing). Deployment does not change account billing.
+The configured release uses Sarvam recognition, Gemini language understanding with Nemotron plan review, Gnani spoken replies, and hosted SQLite. See [the verification report](VALIDATION.md) for the tests actually completed and their limits. Sarvam accepted all 23 language selections and auto-detection in live session checks; a synthetic audio round-trip produced a matching transcript. Individual native-speaker accuracy for every language and noisy-shop microphone conditions is not certified by those checks. The legacy OpenAI path remains optional and requires its own API credits.
 
 ## Scope
 

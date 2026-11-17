@@ -52,14 +52,17 @@ import {
   BarChart3,
   Pencil,
   Database,
+  CalendarDays,
+  Command,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import {
   browserRecognition,
-  gnaniRecognition,
+  streamingRecognition,
   type VoiceHandle,
 } from "@/lib/voice";
+import { AUTO_LANGUAGE, LANGUAGES } from "@/lib/languages";
 import {
   indiaDate,
   money,
@@ -75,12 +78,6 @@ const tabs = [
   { id: "customers", label: "Customers", icon: Users },
   { id: "insights", label: "Insights", icon: BarChart3 },
   { id: "guard", label: "KhataGuard", icon: ShieldCheck },
-];
-const languages = [
-  { code: "hi-IN", name: "Hindi + English", native: "हिन्दी" },
-  { code: "kn-IN", name: "Kannada + English", native: "ಕನ್ನಡ" },
-  { code: "te-IN", name: "Telugu + English", native: "తెలుగు" },
-  { code: "en-IN", name: "English", native: "English" },
 ];
 const examples = [
   "Ravi ka 500 add karo, nahi 350.",
@@ -210,6 +207,8 @@ export default function Workbench() {
   const [voiceOn, setVoiceOn] = useState(false);
   const [expandedAudit, setExpandedAudit] = useState("");
   const voice = useRef<VoiceHandle | null>(null);
+  const voiceSession = useRef(0);
+  const voiceLanguageInitialized = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const assistant = useRef<HTMLElement>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -256,6 +255,7 @@ export default function Workbench() {
     return () => {
       window.removeEventListener("popstate", read);
       window.removeEventListener("keydown", key);
+      voiceSession.current++;
       voice.current?.stop();
       audio.current?.pause();
       if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
@@ -266,6 +266,11 @@ export default function Workbench() {
     const timer = setTimeout(() => setNotice(""), 6000);
     return () => clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    if (!data || voiceLanguageInitialized.current) return;
+    voiceLanguageInitialized.current = true;
+    if (data.providers.sarvamVoice) setLanguage("auto");
+  }, [data]);
   function updateUrl(changes: Record<string, string>) {
     const p = new URLSearchParams(location.search);
     Object.entries(changes).forEach(([k, v]) =>
@@ -274,6 +279,11 @@ export default function Workbench() {
     history.pushState(null, "", `${location.pathname}${p.size ? `?${p}` : ""}`);
   }
   function go(value: string) {
+    voiceSession.current++;
+    voice.current?.stop();
+    voice.current = null;
+    setListening(false);
+    setLevel(0);
     setTab(value);
     setQuery("");
     setSelectedCustomer("");
@@ -339,7 +349,9 @@ export default function Workbench() {
   }
   async function submitCommand(value = text) {
     if (!value.trim()) return;
+    voiceSession.current++;
     voice.current?.stop();
+    voice.current = null;
     setListening(false);
     await work(async () => {
       const result = await api({ op: "preview", text: value });
@@ -348,16 +360,27 @@ export default function Workbench() {
   }
   async function startVoice() {
     if (listening) {
+      voiceSession.current++;
       voice.current?.stop();
+      voice.current = null;
       setListening(false);
+      setLevel(0);
+      return;
+    }
+    const selectedLanguage = LANGUAGES.find((item) => item.code === language);
+    if (data?.providers.streamingVoice && !data.providers.sarvamVoice && !selectedLanguage?.gnani) {
+      setError(`${selectedLanguage?.name || "This language"} voice needs the Sarvam connection. You can still type your command, or choose a Gnani voice language.`);
       return;
     }
     setError("");
     setText("");
     setListening(true);
+    const session = ++voiceSession.current;
+    let ended = false;
     let transcript = "";
     try {
       const onText = (value: string, final: boolean) => {
+        if (session !== voiceSession.current) return;
         transcript = value;
         setText(value);
         if (final) {
@@ -366,17 +389,24 @@ export default function Workbench() {
         }
       };
       const end = () => {
+        ended = true;
+        if (session !== voiceSession.current) return;
+        voice.current = null;
         setListening(false);
         setLevel(0);
       };
       const fail = (message: string) => {
+        if (session !== voiceSession.current) return;
         setError(message);
         end();
       };
-      voice.current = data?.providers.gnaniVoice
-        ? await gnaniRecognition(language, onText, end, fail, setLevel)
+      const handle = data?.providers.streamingVoice
+        ? await streamingRecognition(language, onText, end, fail, setLevel)
         : browserRecognition(language, onText, end, fail);
+      if (session !== voiceSession.current || ended) handle.stop();
+      else voice.current = handle;
     } catch (e) {
+      if (session !== voiceSession.current) return;
       setListening(false);
       setError(e instanceof Error ? e.message : "Microphone is unavailable.");
     }
@@ -474,6 +504,11 @@ export default function Workbench() {
         (!selectedCustomer || e.customerId === selectedCustomer),
     ) ?? [];
   const selected = data?.customers.find((c) => c.id === selectedCustomer);
+  const activeLanguage = LANGUAGES.find((item) => item.code === language) ?? (language === "auto" ? AUTO_LANGUAGE : undefined);
+  const languageVoiceAvailable = !!data?.providers.sarvamVoice || !!activeLanguage?.gnani;
+  const availableVoiceLanguages = data?.providers.sarvamVoice
+    ? LANGUAGES.length
+    : data?.providers.streamingVoice ? LANGUAGES.filter((item) => item.gnani).length : 0;
   const today = new Date(
     `${data?.today || indiaDate()}T12:00:00+05:30`,
   ).toLocaleDateString("en-IN", {
@@ -594,6 +629,441 @@ export default function Workbench() {
     );
   }
 
+  function renderActions(quiet = false) {
+    return (<div className="heading-actions">
+            <Button variant="outline" onClick={() => editCustomer()}>
+              <Users size={16} />
+              Add customer
+            </Button>
+            <Button
+              variant={quiet ? "outline" : "default"}
+              onClick={() => {
+                setError("");
+                setEntryDialog(true);
+              }}
+            >
+              <Plus size={17} />
+              New entry
+            </Button>
+          </div>);
+  }
+  function renderHeading(actions = true) {
+    return (<div className="page-heading">
+          <div>
+            <p className="date-heading">{today}</p>
+            <h1>
+              {tab === "overview"
+                ? "Your shop, in good books."
+                : tab === "ledger"
+                  ? selected
+                    ? `${selected.name}’s khata`
+                    : "Every entry. All accounted for."
+                  : tab === "customers"
+                    ? "Familiar faces. Clear balances."
+                    : tab === "insights"
+                      ? "A little clarity for your day."
+                      : "Your khata has a safety net."}
+            </h1>
+            <p className="heading-description">
+              {tab === "overview"
+                ? "Less bookkeeping. More dukaan. Here’s where your business stands."
+                : tab === "ledger"
+                  ? "A complete record of credit, payments, and corrections."
+                  : tab === "customers"
+                    ? "Your customer relationships, with every rupee in the right place."
+                    : tab === "insights"
+                      ? "Real numbers from your ledger. A better picture of your business."
+                      : "Every change leaves a trail. Every important action gets a second look."}
+            </p>
+          </div>
+          {actions && renderActions()}
+        </div>);
+  }
+  function renderAssistant() {
+    if (!data) return null;
+    return (<aside
+  className="assistant"
+  ref={assistant}
+  aria-label="DukaanOS voice assistant"
+>
+  <div className="assistant-top">
+    <div>
+      <span className="assistant-symbol">
+        <AudioLines size={18} />
+      </span>
+      <strong>DukaanOS</strong>
+      {!data.providers.streamingVoice && (
+        <small className="demo-badge">Browser demo</small>
+      )}
+    </div>
+    <button
+      className="icon-button"
+      aria-label={
+        voiceOn ? "Disable voice replies" : "Enable voice replies"
+      }
+      aria-pressed={voiceOn}
+      onClick={() => {
+        setVoiceOn(!voiceOn);
+        if (voiceOn) {
+          window.speechSynthesis?.cancel();
+          audio.current?.pause();
+        }
+      }}
+    >
+      {voiceOn ? <Volume2 size={17} /> : <VolumeX size={17} />}
+    </button>
+  </div>
+  {!preview ? (
+    <>
+      <div className="assistant-steps" aria-label="Command workflow"><span className="current">1 <b>Speak</b></span><ChevronRight size={12} /><span>2 <b>Review</b></span><ChevronRight size={12} /><span>3 <b>Record</b></span></div>
+      <div className="voice-title">
+        <h2>
+          Your voice.
+          <br />
+          Your khata.
+        </h2>
+        <p>
+          Add credit, record payments, or ask for a balance.
+        </p>
+      </div>
+      <div className="mic-stage">
+        <div
+          className={`mic-rings ${listening ? "is-listening" : ""}`}
+        >
+          <button
+            className="mic-button"
+            aria-label={
+              listening ? "Stop listening" : "Start voice command"
+            }
+            disabled={busy}
+            onClick={() => void startVoice()}
+          >
+            {listening ? (
+              <Square size={24} fill="currentColor" />
+            ) : (
+              <Mic size={30} strokeWidth={1.7} />
+            )}
+          </button>
+        </div>
+        <div
+          className={`waveform ${listening ? "live" : ""}`}
+          aria-hidden="true"
+        >
+          {Array.from({ length: 27 }, (_, i) => (
+            <span
+              key={i}
+              style={{
+                transform: `scaleY(${listening ? Math.max(0.12, Math.min(1, 0.2 + level * 5)) * [0.4, 0.7, 1, 0.6, 0.8][i % 5] : [0.12, 0.2, 0.35, 0.5, 0.3, 0.65, 0.45, 0.75, 0.9, 0.55, 1, 0.7, 0.45][i % 13]})`,
+              }}
+            />
+          ))}
+        </div>
+        <span className="mic-instruction">
+          {busy
+            ? "Understanding your command…"
+            : listening
+              ? "Listening… speak naturally"
+              : "Tap the mic. Speak naturally."}
+        </span>
+      </div>
+      <label className="language-select">
+        <Globe2 size={15} />
+        <select
+          aria-label="Voice language"
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          disabled={listening}
+        >
+                        {data.providers.sarvamVoice && <option value="auto">Auto-detect language</option>}
+                        {LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.name}{data.providers.streamingVoice && !data.providers.sarvamVoice && !l.gnani ? " (voice setup needed)" : ""}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={13} />
+      </label>
+      <div className={`voice-coverage ${data.providers.streamingVoice && !languageVoiceAvailable ? "needs-setup" : ""}`} aria-live="polite">
+        <span>{!data.providers.streamingVoice ? "Browser demo; speech support varies" : languageVoiceAvailable ? `${activeLanguage?.native} voice via ${data.providers.sarvamVoice ? "Sarvam" : "Gnani"}` : "Voice setup needed for this language. Type below to continue."}</span>
+                      <button onClick={() => setSettings(true)}>{data.providers.sarvamVoice ? "22 Indian languages + English" : data.providers.streamingVoice ? `${availableVoiceLanguages} voice languages, view coverage` : "Voice provider coverage"} <ChevronRight size={11} /></button>
+      </div>
+      <details className="examples">
+        <summary>Try a command</summary>
+        {examples.slice(0, 3).map((example, i) => (
+          <button
+            key={example}
+            disabled={busy || listening}
+            onClick={() => {
+              setText(example);
+              void submitCommand(example);
+            }}
+          >
+            <span>“{example}”</span>
+            <ArrowUpRight size={14} />
+            {i === 1 && <small>Relative dates</small>}
+          </button>
+        ))}
+      </details>
+    </>
+  ) : (
+    <div className="preview-area" aria-live="polite">
+      <div className="preview-heading">
+        <span
+          className={
+            preview.blocked
+              ? "review-icon warning"
+              : "review-icon"
+          }
+        >
+          {preview.blocked ? (
+            <CircleHelp size={21} />
+          ) : (
+            <ShieldCheck size={21} />
+          )}
+        </span>
+        <h2>
+          {preview.blocked
+            ? "A quick double-check."
+            : preview.actions.every((a) =>
+                  ["balance", "summary"].includes(a.kind),
+                )
+              ? "Here’s your answer."
+              : "Heard you. Let’s check."}
+        </h2>
+      </div>
+      <blockquote>“{preview.transcript}”</blockquote>
+      <div className="preview-actions">
+        {preview.actions.map((action, i) => (
+          <div className="preview-action" key={i}>
+            <div>
+              <span className="action-number">{i + 1}</span>
+              <strong>
+                {action.kind === "undo"
+                  ? "Reverse transaction"
+                  : action.kind === "correct"
+                    ? "Correct transaction"
+                    : action.kind === "balance"
+                      ? "Check balance"
+                      : action.kind === "summary"
+                        ? "Shop summary"
+                        : action.kind === "credit"
+                          ? "Add credit"
+                          : "Record payment"}
+              </strong>
+              {action.amountPaise != null && (
+                <b>{money(action.amountPaise)}</b>
+              )}
+            </div>
+            <p>
+              {action.customerName ?? "Your shop"}
+              {action.occurredOn
+                ? ` / ${dateLabel(action.occurredOn)}`
+                : ""}
+            </p>
+            {action.needsClarification && (
+              <div className="clarification">
+                <p>{action.question}</p>
+                {(action.clarificationFields?.includes("customer") ?? true) && action.candidates?.length ? (
+                  <select
+                    aria-label={`Choose customer for action ${i + 1}`}
+                    defaultValue=""
+                    onChange={(e) =>
+                      setOverrides({
+                        ...overrides,
+                        [i]: {
+                          ...overrides[i],
+                          customerId: e.target.value,
+                        },
+                      })
+                    }
+                  >
+                    <option value="" disabled>
+                      Select the right customer
+                    </option>
+                    {action.candidates.map((c) => (
+                      <option value={c.id} key={c.id}>
+                        {c.name}{" "}
+                        {c.phone ? `(${c.phone.slice(-4)})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {(action.clarificationFields?.includes("amount") ?? (!action.amountPaise ||
+                  /amount/i.test(action.question ?? ""))) &&
+                  ["credit", "payment", "correct"].includes(
+                    action.kind,
+                  ) && (
+                    <input
+                      aria-label={`Exact rupee amount for action ${i + 1}`}
+                      placeholder="Exact amount in rupees"
+                      inputMode="decimal"
+                      onChange={(e) =>
+                        setOverrides({
+                          ...overrides,
+                          [i]: {
+                            ...overrides[i],
+                            amount: e.target.value,
+                          },
+                        })
+                      }
+                    />
+                  )}
+                {(action.clarificationFields?.includes("date") ?? /date|yesterday/i.test(action.question ?? "")) && (
+                  <input
+                    type="date"
+                    aria-label={`Transaction date for action ${i + 1}`}
+                    max={data.today}
+                    value={overrides[i]?.date ?? ""}
+                    onChange={(e) =>
+                      setOverrides({
+                        ...overrides,
+                        [i]: {
+                          ...overrides[i],
+                          date: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                )}
+                {action.clarificationFields?.includes("intent") && (
+                  <p className="clarification-help">Discard and rephrase this command, or use a manual entry. We won’t guess a financial action.</p>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {preview.answers.map((answer) => (
+        <p className="answer" key={answer}>
+          {answer}
+        </p>
+      ))}
+      {preview.warnings.length > 0 && (
+        <div className="safety-warning">
+          <AlertTriangle size={17} />
+          <div>
+            {preview.warnings.map((w) => (
+              <p key={w}>{w}</p>
+            ))}
+            <label>
+              <input
+                type="checkbox"
+                checked={ack}
+                onChange={(e) => setAck(e.target.checked)}
+              />
+              I’ve checked this and want to proceed.
+            </label>
+          </div>
+        </div>
+      )}
+      <div className="review-controls">
+        {preview.blocked ? (
+          <Button
+            onClick={() => void clarify()}
+            disabled={busy || !Object.keys(overrides).length}
+          >
+            {busy ? (
+              <LoaderCircle className="spin" size={16} />
+            ) : (
+              <Check size={16} />
+            )}
+            Check again
+          </Button>
+        ) : (
+          <Button
+            onClick={() => void confirm()}
+            disabled={busy || (!!preview.warnings.length && !ack)}
+          >
+            {busy ? (
+              <LoaderCircle className="spin" size={16} />
+            ) : (
+              <CheckCheck size={16} />
+            )}{" "}
+            {preview.actions.every((a) =>
+              ["balance", "summary"].includes(a.kind),
+            )
+              ? "Done"
+              : "Confirm & record"}
+          </Button>
+        )}
+        {preview.actions.some((action) => action.clarificationFields?.includes("intent")) && (
+          <button className="text-button" disabled={busy} onClick={() => void work(async () => { await api({op:"cancel",commandId:preview.id}); setPreview(null); setText(""); setEntryDialog(true); })}>Use manual entry <ArrowRight size={13} /></button>
+        )}
+        <button
+          className="text-button"
+          disabled={busy}
+          onClick={() => void discard()}
+        >
+          {preview.actions.every((a) =>
+            ["balance", "summary"].includes(a.kind),
+          )
+            ? "Ask something else"
+            : "Discard"}
+        </button>
+      </div>
+      <span className="provider-note">
+        Understood by {preview.provider}
+      </span>
+    </div>
+  )}
+  <div className="assistant-bottom">
+    {error && !customerDialog && !entryDialog && (
+      <div className="assistant-error" role="alert">
+        <AlertTriangle size={15} />
+        <span>{error}</span>
+        <button
+          aria-label="Dismiss error"
+          onClick={() => setError("")}
+        >
+          <X size={14} />
+        </button>
+      </div>
+    )}
+    <form
+      className="command-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submitCommand();
+      }}
+    >
+      <textarea
+        ref={input}
+        rows={1}
+        placeholder="Type your command here…"
+        aria-label="Type a ledger command"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void submitCommand();
+          }
+        }}
+        disabled={busy || listening || !!preview}
+      />
+      <button
+        type="submit"
+        disabled={busy || !text.trim() || !!preview}
+        aria-label="Understand command"
+      >
+        {busy ? (
+          <LoaderCircle className="spin" size={17} />
+        ) : (
+          <ArrowRight size={19} />
+        )}
+      </button>
+    </form>
+    <div className="assistant-meta">
+      <span>
+        <ShieldCheck size={12} />
+        You confirm. Then we record.
+      </span>
+      <kbd>Ctrl K</kbd>
+    </div>
+  </div>
+</aside>);
+  }
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -632,57 +1102,39 @@ export default function Workbench() {
               <Store size={18} />
             </span>
             <span>
-              My kirana<small>Sample shop</small>
+              My kirana<small>Shop workspace</small>
             </span>
             <ChevronDown size={14} />
           </button>
         </div>
       </header>
       <main id="main" className="workspace">
-        <div className="page-heading">
+        <div className="workspace-topbar">
+          <span className="workspace-breadcrumb">My kirana <ChevronRight size={13} /> <strong>{tabs.find((item) => item.id === tab)?.label}</strong></span>
           <div>
-            <p className="date-heading">{today}</p>
-            <h1>
-              {tab === "overview"
-                ? "Your shop, in good books."
-                : tab === "ledger"
-                  ? selected
-                    ? `${selected.name}’s khata`
-                    : "Every entry. All accounted for."
-                  : tab === "customers"
-                    ? "Familiar faces. Clear balances."
-                    : tab === "insights"
-                      ? "A little clarity for your day."
-                      : "Your khata has a safety net."}
-            </h1>
-            <p className="heading-description">
-              {tab === "overview"
-                ? "Less bookkeeping. More dukaan. Here’s where your business stands."
-                : tab === "ledger"
-                  ? "A complete record of credit, payments, and corrections."
-                  : tab === "customers"
-                    ? "Your customer relationships, with every rupee in the right place."
-                    : tab === "insights"
-                      ? "Real numbers from your ledger. A better picture of your business."
-                      : "Every change leaves a trail. Every important action gets a second look."}
-            </p>
-          </div>
-          <div className="heading-actions">
-            <Button variant="outline" onClick={() => editCustomer()}>
-              <Users size={16} />
-              Add customer
-            </Button>
-            <Button
-              onClick={() => {
-                setError("");
-                setEntryDialog(true);
-              }}
-            >
-              <Plus size={17} />
-              New entry
-            </Button>
+            {data && <span className="storage-status">{data.storage === "Hosted SQLite" ? "Cloud ledger" : "Local ledger"}</span>}
+            <button className="command-shortcut" onClick={() => { input.current?.focus(); assistant.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }}>
+              <Command size={14} /><span>Quick command</span><kbd>Ctrl K</kbd>
+            </button>
           </div>
         </div>
+        {tab === "overview" ? (
+          <section className="reference-stage" aria-label="Your voice-powered khata">
+            <div className="reference-stage-content">
+              <div className="reference-stage-copy">
+                {renderHeading(false)}
+                <p className="stage-tagline">One Voice. Every Transaction. Any Language.</p>
+                <div className="stage-actions">
+                  <Button onClick={() => void startVoice()} disabled={busy || !data || !!preview}><Mic size={18} />{listening ? "Stop listening" : "Speak a transaction"}</Button>
+                  <button className="text-button" onClick={() => go("ledger")}>Open your ledger</button>
+                </div>
+                <div className="stage-manual-actions" aria-label="Manual entry actions">{renderActions(true)}</div>
+              </div>
+              {renderAssistant()}
+            </div>
+            <div className="language-ribbon" aria-label="Available language choices">{LANGUAGES.filter((item) => ["hi-IN","ta-IN","kn-IN","te-IN","bn-IN","mr-IN","ml-IN","gu-IN","pa-IN","ur-IN"].includes(item.code)).map((item) => <span key={item.code}>{item.native}</span>)}</div>
+          </section>
+        ) : renderHeading()}
         {loadError ? (
           <div className="load-error" role="alert">
             <AlertTriangle size={20} />
@@ -734,6 +1186,11 @@ export default function Workbench() {
                 </small>
               </div>
             </section>
+            {tab === "overview" && <div className="overview-toolbar"><div><h2>Your shop, at a glance</h2><p>Real balances. Every rupee accounted for.</p></div>{renderActions()}</div>}
+            <div className="workspace-assurance">
+              <span><ShieldCheck size={15} /> KhataGuard checks every transaction</span>
+              <button onClick={() => setSettings(true)}><Sparkles size={14} /> {data.providers.llm}<ChevronRight size={13} /></button>
+            </div>
             <div className="workbench-grid">
               <div className="main-column">
                 {tab === "overview" && (
@@ -745,8 +1202,7 @@ export default function Workbench() {
                           <p>Credit and collections, at a glance</p>
                         </div>
                         <span className="period-label">
-                          Last 7 days
-                          <ChevronDown size={13} />
+                          <CalendarDays size={13} /> Last 7 days
                         </span>
                       </div>
                       <div className="chart-legend">
@@ -1090,378 +1546,7 @@ export default function Workbench() {
                   </>
                 )}
               </div>
-              <aside
-                className="assistant"
-                ref={assistant}
-                aria-label="DukaanOS voice assistant"
-              >
-                <div className="assistant-top">
-                  <div>
-                    <span className="assistant-symbol">
-                      <AudioLines size={18} />
-                    </span>
-                    <strong>DukaanOS</strong>
-                    {!data.providers.gnaniVoice && (
-                      <small className="demo-badge">Browser demo</small>
-                    )}
-                  </div>
-                  <button
-                    className="icon-button"
-                    aria-label={
-                      voiceOn ? "Disable voice replies" : "Enable voice replies"
-                    }
-                    aria-pressed={voiceOn}
-                    onClick={() => {
-                      setVoiceOn(!voiceOn);
-                      if (voiceOn) {
-                        window.speechSynthesis?.cancel();
-                        audio.current?.pause();
-                      }
-                    }}
-                  >
-                    {voiceOn ? <Volume2 size={17} /> : <VolumeX size={17} />}
-                  </button>
-                </div>
-                {!preview ? (
-                  <>
-                    <div className="voice-title">
-                      <h2>
-                        Just say it.
-                        <br />
-                        We’ll write it.
-                      </h2>
-                      <p>
-                        One voice. Every transaction.
-                        <br />
-                        Any language.
-                      </p>
-                    </div>
-                    <div className="mic-stage">
-                      <div
-                        className={`mic-rings ${listening ? "is-listening" : ""}`}
-                      >
-                        <button
-                          className="mic-button"
-                          aria-label={
-                            listening ? "Stop listening" : "Start voice command"
-                          }
-                          disabled={busy}
-                          onClick={() => void startVoice()}
-                        >
-                          {listening ? (
-                            <Square size={24} fill="currentColor" />
-                          ) : (
-                            <Mic size={30} strokeWidth={1.7} />
-                          )}
-                        </button>
-                      </div>
-                      <div
-                        className={`waveform ${listening ? "live" : ""}`}
-                        aria-hidden="true"
-                      >
-                        {Array.from({ length: 27 }, (_, i) => (
-                          <span
-                            key={i}
-                            style={{
-                              transform: `scaleY(${listening ? Math.max(0.12, Math.min(1, 0.2 + level * 5)) * [0.4, 0.7, 1, 0.6, 0.8][i % 5] : [0.12, 0.2, 0.35, 0.5, 0.3, 0.65, 0.45, 0.75, 0.9, 0.55, 1, 0.7, 0.45][i % 13]})`,
-                            }}
-                          />
-                        ))}
-                      </div>
-                      <span className="mic-instruction">
-                        {busy
-                          ? "Understanding your command…"
-                          : listening
-                            ? "Listening… speak naturally"
-                            : "Tap the mic. Speak naturally."}
-                      </span>
-                    </div>
-                    <label className="language-select">
-                      <Globe2 size={15} />
-                      <select
-                        aria-label="Voice language"
-                        value={language}
-                        onChange={(e) => setLanguage(e.target.value)}
-                        disabled={listening}
-                      >
-                        {languages.map((l) => (
-                          <option key={l.code} value={l.code}>
-                            {l.name}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={13} />
-                    </label>
-                    <div className="examples">
-                      <p>Try saying</p>
-                      {examples.slice(0, 3).map((example, i) => (
-                        <button
-                          key={example}
-                          disabled={busy || listening}
-                          onClick={() => {
-                            setText(example);
-                            void submitCommand(example);
-                          }}
-                        >
-                          <span>“{example}”</span>
-                          <ArrowUpRight size={14} />
-                          {i === 1 && <small>Relative dates</small>}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="preview-area" aria-live="polite">
-                    <div className="preview-heading">
-                      <span
-                        className={
-                          preview.blocked
-                            ? "review-icon warning"
-                            : "review-icon"
-                        }
-                      >
-                        {preview.blocked ? (
-                          <CircleHelp size={21} />
-                        ) : (
-                          <ShieldCheck size={21} />
-                        )}
-                      </span>
-                      <h2>
-                        {preview.blocked
-                          ? "A quick double-check."
-                          : preview.actions.every((a) =>
-                                ["balance", "summary"].includes(a.kind),
-                              )
-                            ? "Here’s your answer."
-                            : "Heard you. Let’s check."}
-                      </h2>
-                    </div>
-                    <blockquote>“{preview.transcript}”</blockquote>
-                    <div className="preview-actions">
-                      {preview.actions.map((action, i) => (
-                        <div className="preview-action" key={i}>
-                          <div>
-                            <span className="action-number">{i + 1}</span>
-                            <strong>
-                              {action.kind === "undo"
-                                ? "Reverse transaction"
-                                : action.kind === "correct"
-                                  ? "Correct transaction"
-                                  : action.kind === "balance"
-                                    ? "Check balance"
-                                    : action.kind === "summary"
-                                      ? "Shop summary"
-                                      : action.kind === "credit"
-                                        ? "Add credit"
-                                        : "Record payment"}
-                            </strong>
-                            {action.amountPaise != null && (
-                              <b>{money(action.amountPaise)}</b>
-                            )}
-                          </div>
-                          <p>
-                            {action.customerName ?? "Your shop"}
-                            {action.occurredOn
-                              ? ` / ${dateLabel(action.occurredOn)}`
-                              : ""}
-                          </p>
-                          {action.needsClarification && (
-                            <div className="clarification">
-                              <p>{action.question}</p>
-                              {action.candidates?.length ? (
-                                <select
-                                  aria-label={`Choose customer for action ${i + 1}`}
-                                  defaultValue=""
-                                  onChange={(e) =>
-                                    setOverrides({
-                                      ...overrides,
-                                      [i]: {
-                                        ...overrides[i],
-                                        customerId: e.target.value,
-                                      },
-                                    })
-                                  }
-                                >
-                                  <option value="" disabled>
-                                    Select the right customer
-                                  </option>
-                                  {action.candidates.map((c) => (
-                                    <option value={c.id} key={c.id}>
-                                      {c.name}{" "}
-                                      {c.phone ? `(${c.phone.slice(-4)})` : ""}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : null}
-                              {(!action.amountPaise ||
-                                /amount/i.test(action.question ?? "")) &&
-                                ["credit", "payment", "correct"].includes(
-                                  action.kind,
-                                ) && (
-                                  <input
-                                    aria-label={`Exact rupee amount for action ${i + 1}`}
-                                    placeholder="Exact amount in rupees"
-                                    inputMode="decimal"
-                                    onChange={(e) =>
-                                      setOverrides({
-                                        ...overrides,
-                                        [i]: {
-                                          ...overrides[i],
-                                          amount: e.target.value,
-                                        },
-                                      })
-                                    }
-                                  />
-                                )}
-                              {/date|yesterday/i.test(
-                                action.question ?? "",
-                              ) && (
-                                <input
-                                  type="date"
-                                  aria-label={`Transaction date for action ${i + 1}`}
-                                  max={data.today}
-                                  onChange={(e) =>
-                                    setOverrides({
-                                      ...overrides,
-                                      [i]: {
-                                        ...overrides[i],
-                                        date: e.target.value,
-                                      },
-                                    })
-                                  }
-                                />
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    {preview.answers.map((answer) => (
-                      <p className="answer" key={answer}>
-                        {answer}
-                      </p>
-                    ))}
-                    {preview.warnings.length > 0 && (
-                      <div className="safety-warning">
-                        <AlertTriangle size={17} />
-                        <div>
-                          {preview.warnings.map((w) => (
-                            <p key={w}>{w}</p>
-                          ))}
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={ack}
-                              onChange={(e) => setAck(e.target.checked)}
-                            />
-                            I’ve checked this and want to proceed.
-                          </label>
-                        </div>
-                      </div>
-                    )}
-                    <div className="review-controls">
-                      {preview.blocked ? (
-                        <Button
-                          onClick={() => void clarify()}
-                          disabled={busy || !Object.keys(overrides).length}
-                        >
-                          {busy ? (
-                            <LoaderCircle className="spin" size={16} />
-                          ) : (
-                            <Check size={16} />
-                          )}
-                          Check again
-                        </Button>
-                      ) : (
-                        <Button
-                          onClick={() => void confirm()}
-                          disabled={busy || (!!preview.warnings.length && !ack)}
-                        >
-                          {busy ? (
-                            <LoaderCircle className="spin" size={16} />
-                          ) : (
-                            <CheckCheck size={16} />
-                          )}{" "}
-                          {preview.actions.every((a) =>
-                            ["balance", "summary"].includes(a.kind),
-                          )
-                            ? "Done"
-                            : "Confirm & record"}
-                        </Button>
-                      )}
-                      <button
-                        className="text-button"
-                        disabled={busy}
-                        onClick={() => void discard()}
-                      >
-                        {preview.actions.every((a) =>
-                          ["balance", "summary"].includes(a.kind),
-                        )
-                          ? "Ask something else"
-                          : "Discard"}
-                      </button>
-                    </div>
-                    <span className="provider-note">
-                      Understood by {preview.provider}
-                    </span>
-                  </div>
-                )}
-                <div className="assistant-bottom">
-                  {error && !customerDialog && !entryDialog && (
-                    <div className="assistant-error" role="alert">
-                      <AlertTriangle size={15} />
-                      <span>{error}</span>
-                      <button
-                        aria-label="Dismiss error"
-                        onClick={() => setError("")}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  )}
-                  <form
-                    className="command-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void submitCommand();
-                    }}
-                  >
-                    <textarea
-                      ref={input}
-                      rows={1}
-                      placeholder="Or type a command…"
-                      aria-label="Type a ledger command"
-                      value={text}
-                      onChange={(e) => setText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          void submitCommand();
-                        }
-                      }}
-                      disabled={busy || listening || !!preview}
-                    />
-                    <button
-                      type="submit"
-                      disabled={busy || !text.trim() || !!preview}
-                      aria-label="Understand command"
-                    >
-                      {busy ? (
-                        <LoaderCircle className="spin" size={17} />
-                      ) : (
-                        <ArrowRight size={19} />
-                      )}
-                    </button>
-                  </form>
-                  <div className="assistant-meta">
-                    <span>
-                      <ShieldCheck size={12} />
-                      You confirm. Then we record.
-                    </span>
-                    <kbd>Ctrl K</kbd>
-                  </div>
-                </div>
-              </aside>
+              {tab !== "overview" && renderAssistant()}
             </div>
             <footer className="workspace-footer">
               <span>
@@ -1676,10 +1761,12 @@ export default function Workbench() {
           </div>
         </div>
         <p className="setup-note">
-          Add your OpenAI and Gnani keys to Vercel’s Production environment, or
-          the local <code>.env.local</code> file for development. Redeploy or
-          restart after changes. Browser speech and the limited local parser are
-          labeled demo modes. Full code-mixed understanding uses the LLM.
+          {data?.providers.sarvamVoice
+            ? "Sarvam voice is configured for all 22 scheduled Indian languages plus English."
+            : data?.providers.streamingVoice
+              ? "Gnani voice covers Bengali, English, Gujarati, Hindi, Kannada, Malayalam, Marathi, Punjabi, Tamil, and Telugu. The remaining Indian languages need the Sarvam connection. You can still type a command in any listed language; interpretation depends on the configured model."
+              : "Browser speech is a demo and language availability depends on your browser. Connect a speech provider for reliable server voice."}
+          {" "}Provider names show configuration; account quota and real-world accuracy are checked separately. Every financial entry still needs your review.
         </p>
         <p className="setup-note">
           This is a single-shop hackathon build. Sample customers and entries

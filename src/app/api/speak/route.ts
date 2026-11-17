@@ -1,11 +1,9 @@
 import { z } from "zod";
+import { isSameOriginRequest } from "@/lib/origin";
 import { finalizeWav } from "@/lib/audio";
 import { gnaniKey, assertProviderKey } from "@/lib/provider-config";
 export async function POST(req: Request) {
-  if (
-    req.headers.get("origin") &&
-    req.headers.get("origin") !== new URL(req.url).origin
-  )
+  if (!isSameOriginRequest(req))
     return Response.json({ error: "Invalid origin." }, { status: 403 });
   const apiKey = gnaniKey();
   if (!apiKey)

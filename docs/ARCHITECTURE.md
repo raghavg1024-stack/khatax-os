@@ -20,14 +20,14 @@ sequenceDiagram
     participant Shopkeeper
     participant Browser
     participant Voice as Node WebSocket session
-    participant Gnani
+    participant Speech as Sarvam / Gnani
     participant API as Next.js API
     participant LLM as Nemotron / Gemini / optional OpenAI
     participant DB as SQLite / hosted SQLite
     Shopkeeper->>Browser: Speak a command
     Browser->>Voice: 16 kHz mono PCM frames
-    Voice->>Gnani: Authenticated Prisma v3.0 stream
-    Gnani-->>Browser: Final transcript, via relay
+    Voice->>Speech: Authenticated realtime audio stream
+    Speech-->>Browser: Final transcript, via relay
     Browser->>API: Preview transcript
     API->>DB: Read customer names and nicknames
     API->>LLM: Extract structured intentions
@@ -45,7 +45,7 @@ Typed input starts at the preview request and uses the same financial path. A ma
 
 ## What the AI does
 
-The configured provider receives the instruction, today's date in Asia/Kolkata, and the customer name/nickname directory. NVIDIA Nemotron uses its documented JSON mode with the action schema in the system instructions and thinking disabled. Gemini's native REST request uses JSON Schema generated from the same Zod extraction schema. The server rejects incomplete responses and validates returned JSON before producing intentions: `credit`, `payment`, `balance`, `summary`, `undo`, and `correct`. Key priority is NVIDIA, Gemini, then the previous OpenAI integration. Provider labels and persisted commands identify the path actually used; request failures do not silently switch providers.
+The configured provider receives the instruction, today's date in Asia/Kolkata, and the customer name/nickname directory. With both keys present, Gemini performs native-language understanding and Nemotron 3.5 Lightning reviews the normalized plan using schema-constrained JSON. Application code rejects disagreement about action kinds, exact amounts, and specified dates. This is a plan-consistency check, not independent proof of translation accuracy. The original transcript, proposed names, and unresolved questions remain available for deterministic guards and user review. The allowed intentions are `credit`, `payment`, `balance`, `summary`, `undo`, and `correct`. Single-provider configurations remain available; labels and saved commands identify the actual path, with no silent provider fallback.
 
 The model can propose the name, exact rupee amount as a string, date, note, and a clarification question. It cannot run SQL, call Prisma, change a balance, or authorize its own proposal. It has no database credentials and no financial execution tool.
 
@@ -85,7 +85,7 @@ Durable database state must use hosted SQLite rather than the function filesyste
 
 ## Speech formats and lifecycle
 
-The browser captures microphone audio, converts it in an AudioWorklet to signed 16-bit little-endian mono PCM at 16 kHz, and sends 1,024-byte frames. The backend waits for Gnani's `connected` event before forwarding audio. Stop sends the provider's documented `commit` control frame. Transcripts and errors return through the same socket.
+The browser captures microphone audio, converts it in an AudioWorklet to signed 16-bit little-endian mono PCM at 16 kHz, and sends 1,024-byte frames. The backend waits for Sarvam's `session.begin` or Gnani's `connected` event before forwarding audio. Sarvam receives base64 `audio_input` events and an `end` event on Stop; Gnani receives binary frames and `commit`. The relay converts provider results into bounded canonical connection, interim, final transcript, and safe error events. Cancellation closes the microphone, audio context, timers, and upstream connection.
 
 The relay uses the official Prisma v3.0 headers, including `x-api-key-id`, language hints, model, format, and sample rate. Client disconnects close the upstream socket. A session timer closes abandoned streams. A fresh command starts a new session.
 

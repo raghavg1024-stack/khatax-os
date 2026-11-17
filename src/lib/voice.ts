@@ -58,7 +58,7 @@ export function browserRecognition(
   recognition.start();
   return { stop: () => recognition.stop() };
 }
-export async function gnaniRecognition(
+export async function streamingRecognition(
   language: string,
   onText: (text: string, final: boolean) => void,
   onEnd: () => void,
@@ -72,25 +72,36 @@ export async function gnaniRecognition(
   let node: AudioWorkletNode | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
   let ended = false;
-  const socket = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/voice?language=${encodeURIComponent(language)}`,
-  );
+  let socket: WebSocket;
+  try {
+    socket = new WebSocket(
+      `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/voice?language=${encodeURIComponent(language)}`,
+    );
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("Could not start the voice connection. Retry or type your command.");
+  }
+  let timer: number | undefined;
+  let stopTimer: number | undefined;
   const cleanup = () => {
     if (ended) return;
     ended = true;
+    clearTimeout(timer);
+    clearTimeout(stopTimer);
     stream.getTracks().forEach((t) => t.stop());
     node?.disconnect();
     source?.disconnect();
-    void context?.close();
+    if (context && context.state !== "closed") void context.close().catch(() => {});
     if (socket.readyState < 2) socket.close();
     onEnd();
   };
-  const timer = window.setTimeout(() => {
+  timer = window.setTimeout(() => {
     onError("Voice connection timed out. Try again or type your command.");
     cleanup();
   }, 18000);
   const worklet = `class PcmCapture extends AudioWorkletProcessor {constructor(){super();this.buffer=[];this.phase=0;}process(inputs){const audio=inputs[0]?.[0];if(!audio)return true;const ratio=sampleRate/16000;for(let i=0;i<audio.length;i++){this.phase+=1;if(this.phase>=ratio){this.phase-=ratio;this.buffer.push(Math.max(-1,Math.min(1,audio[i])));if(this.buffer.length===512){const data=new ArrayBuffer(1024);const view=new DataView(data);let energy=0;for(let j=0;j<512;j++){view.setInt16(j*2,Math.round(this.buffer[j]*32767),true);energy+=this.buffer[j]*this.buffer[j];}this.port.postMessage({pcm:data,level:Math.sqrt(energy/512)},[data]);this.buffer=[];}}}return true;}}registerProcessor('pcm-capture',PcmCapture);`;
   socket.onmessage = async (event) => {
+    if (ended) return;
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === "connected") {
@@ -121,6 +132,8 @@ export async function gnaniRecognition(
         onText(msg.text, true);
         cleanup();
       }
+      if (msg.type === "interim" && typeof msg.text === "string")
+        onText(msg.text, false);
       if (msg.type === "error") {
         onError(msg.message || "Speech provider error.");
         cleanup();
@@ -131,6 +144,7 @@ export async function gnaniRecognition(
     }
   };
   socket.onerror = () => {
+    if (ended) return;
     clearTimeout(timer);
     onError("Voice connection failed. Check the server and retry.");
     cleanup();
@@ -141,12 +155,21 @@ export async function gnaniRecognition(
   };
   return {
     stop: () => {
+      if (ended) return;
+      // A cancelled permission/connection startup must not later open the mic.
+      if (!node || socket.readyState !== WebSocket.OPEN) {
+        cleanup();
+        return;
+      }
       if (socket.readyState === WebSocket.OPEN)
         socket.send(JSON.stringify({ type: "commit" }));
       stream.getTracks().forEach((t) => t.stop());
       node?.disconnect();
       source?.disconnect();
-      window.setTimeout(cleanup, 5000);
+      stopTimer = window.setTimeout(cleanup, 12000);
     },
   };
 }
+
+// Compatibility for callers migrating from the original single-provider client.
+export const gnaniRecognition = streamingRecognition;

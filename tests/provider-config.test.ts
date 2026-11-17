@@ -45,7 +45,7 @@ test("Production aliases resolve and canonical names take precedence", () => {
     assert.equal(nvidiaKey(), "nvidia-alias-placeholder");
     process.env.NVIDIA_API_KEY = "nvidia-canonical-placeholder";
     assert.equal(nvidiaKey(), "nvidia-canonical-placeholder");
-    assert.equal(llmProvider(), "NVIDIA Nemotron");
+    assert.equal(llmProvider(), "NVIDIA Nemotron + Gemini");
   } finally {
     for (const key of keys) {
       if (before[key] === undefined) delete process.env[key];

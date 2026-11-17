@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSameOriginRequest } from "@/lib/origin";
 import { UserInputError } from "@/lib/errors";
 import { db } from "@/lib/db";
 import { audit, commit, prepare } from "@/lib/ledger";
@@ -61,10 +62,7 @@ const requestSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("reverse"), entryId: id }),
 ]);
 export async function POST(req: Request) {
-  if (
-    req.headers.get("origin") &&
-    req.headers.get("origin") !== new URL(req.url).origin
-  )
+  if (!isSameOriginRequest(req))
     return Response.json(
       { error: "Only same-origin requests are allowed." },
       { status: 403 },

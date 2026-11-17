@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { UserInputError } from "./errors";
-import { llmProvider, gnaniKey } from "./provider-config";
+import { llmProvider, gnaniKey, sarvamKey } from "./provider-config";
 import {
   dateSchema,
   indiaDate,
@@ -22,6 +22,38 @@ export function normalize(value: string) {
     .normalize("NFKC")
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
+
+function namePattern(name: string) {
+  const literal = name.normalize("NFKC").trim()
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{M}])${literal}(?![\\p{L}\\p{M}])`, "giu");
+}
+
+/** A model may translate a name, but cannot choose between a shared spoken nickname. */
+function spokenIdentityGroups(
+  transcript: string,
+  customers: { id: string; name: string; nicknames: string }[],
+) {
+  const aliases = new Map<string, { names: Set<string>; ids: Set<string> }>();
+  for (const customer of customers)
+    for (const name of [customer.name, ...customer.nicknames.split(",")]) {
+      const key = normalize(name);
+      if (!key) continue;
+      const group = aliases.get(key) ?? { names: new Set<string>(), ids: new Set<string>() };
+      group.names.add(name.trim());
+      group.ids.add(customer.id);
+      aliases.set(key, group);
+    }
+  let remaining = transcript.normalize("NFKC");
+  const uniqueNames = [...aliases.values()].filter((group) => group.ids.size === 1)
+    .flatMap((group) => [...group.names]).sort((a, b) => b.length - a.length);
+  for (const name of uniqueNames) remaining = remaining.replace(namePattern(name), " ");
+  return [...aliases.values()].filter((group) =>
+    group.ids.size > 1 && [...group.names].some((name) => namePattern(name).test(remaining)),
+  );
+}
+
 export async function snapshot() {
   // ponytail: scan the full ledger for one local shop; aggregate and paginate when volume makes this slow.
   const [customers, entries, audits] = await Promise.all([
@@ -84,9 +116,11 @@ export async function snapshot() {
     }),
     providers: {
       llm: llmProvider(),
-      stt: gnaniKey() ? "Gnani Prisma v3.0" : "Browser speech · demo",
+      stt: sarvamKey() ? "Sarvam Saaras v4" : gnaniKey() ? "Gnani Prisma v3.0" : "Browser speech · demo",
       tts: gnaniKey() ? "Gnani Timbre v3.0" : "Browser voice · demo",
       gnaniVoice: !!gnaniKey(),
+      sarvamVoice: !!sarvamKey(),
+      streamingVoice: !!(sarvamKey() || gnaniKey()),
     },
   };
 }
@@ -108,18 +142,29 @@ export async function prepare(
     (a) => !["balance", "summary"].includes(a.kind),
   );
   const chosenTargets = new Set<string>();
+  const spokenGroups = provider === "manual" ? [] : spokenIdentityGroups(transcript, customers);
   for (const [index, original] of extracted.entries()) {
     const action: ResolvedAction = { ...original };
+    const prior = original as ResolvedAction;
+    const fields = new Set<"customer" | "amount" | "date" | "intent">(prior.clarificationFields ?? []);
+    const modelUncertainty = original.needsClarification && !prior.clarificationFields;
+    if (modelUncertainty) {
+      const question = original.question ?? "";
+      if (/\b(amount|rupees?|price)\b|\d.*\bor\b.*\d/i.test(question)) fields.add("amount");
+      if (/\b(date|day|yesterday|tomorrow|when|kal)\b/i.test(question)) fields.add("date");
+      if (/\bcustomer\b|^Which .*did you mean|^No customer matches/i.test(question)) fields.add("customer");
+      if (!fields.size) fields.add("intent");
+    }
+    if (["credit", "payment"].includes(action.kind) && !original.date)
+      fields.add("date");
     const override = overrides[String(index)];
     if (override?.amount) {
       action.amount = override.amount;
-      action.needsClarification = false;
-      action.question = null;
+      fields.delete("amount");
     }
     if (override?.date) {
       action.date = override.date;
-      action.needsClarification = false;
-      action.question = null;
+      fields.delete("date");
     }
     if (action.kind === "summary") {
       if (hasWrites) {
@@ -136,7 +181,7 @@ export async function prepare(
       actions.push(action);
       continue;
     }
-    const matches = customers.filter((c) =>
+    let matches = customers.filter((c) =>
       [c.name, ...c.nicknames.split(",")].some(
         (n) =>
           normalize(n) &&
@@ -144,16 +189,24 @@ export async function prepare(
             normalize(n).startsWith(normalize(action.customerName ?? ""))),
       ),
     );
-    const customer = override?.customerId
+    const shared = spokenGroups.filter((group) => matches.some((customer) => group.ids.has(customer.id)));
+    if (shared.length)
+      matches = customers.filter((customer) => shared.some((group) => group.ids.has(customer.id)));
+    // Saved server metadata retains an explicitly resolved identity across later amount/date edits.
+    const selectedCustomerId = override?.customerId ?? (
+      prior.clarificationFields && !prior.clarificationFields.includes("customer")
+        ? prior.customerId : undefined
+    );
+    const customer = selectedCustomerId
       ? customers.find(
           (c) =>
-            c.id === override.customerId && matches.some((m) => m.id === c.id),
+            c.id === selectedCustomerId && matches.some((m) => m.id === c.id),
         )
       : matches.length === 1
         ? matches[0]
         : undefined;
     if (action.customerName && !customer) {
-      action.needsClarification = true;
+      fields.add("customer");
       action.candidates = matches.map((c) => ({
         id: c.id,
         name: c.name,
@@ -164,32 +217,27 @@ export async function prepare(
         : `No customer matches “${action.customerName}”. Add them in Customers, then try again.`;
     }
     if (!action.customerName && !["undo", "correct"].includes(action.kind)) {
-      action.needsClarification = true;
+      fields.add("customer");
+      action.candidates = matches.map((c) => ({ id: c.id, name: c.name, phone: c.phone }));
       action.question =
         "Which customer is this for? Include their name in your command.";
     }
     if (customer) {
       action.customerId = customer.id;
       action.customerName = customer.name;
-      if (
-        /^Which .*did you mean|^No customer matches|^Which customer is this/.test(
-          action.question ?? "",
-        )
-      ) {
-        action.needsClarification = false;
-        action.question = null;
-      }
+      fields.delete("customer");
     }
     if (["credit", "payment", "correct"].includes(action.kind)) {
       try {
         action.amountPaise = toPaise(action.amount ?? "");
       } catch {
-        action.needsClarification = true;
+        fields.add("amount");
         action.question = "What is the exact amount in rupees?";
       }
-      const parsed = dateSchema.safeParse(action.date ?? indiaDate());
+      const parsed = dateSchema.safeParse(action.date ?? (action.kind === "correct" ? indiaDate() : undefined));
       if (!parsed.success) {
-        action.needsClarification = true;
+        fields.add("date");
+        delete action.occurredOn;
         action.question =
           "What date did this happen? Use today or an earlier date.";
       } else action.occurredOn = parsed.data;
@@ -208,7 +256,7 @@ export async function prepare(
         include: { customer: true },
       });
       if (!target || chosenTargets.has(target.id)) {
-        action.needsClarification = true;
+        fields.add("intent");
         action.question = "There is no unique active transaction to reverse.";
       } else {
         action.targetId = target.id;
@@ -290,6 +338,14 @@ export async function prepare(
         );
       }
     }
+    action.clarificationFields = [...fields];
+    action.needsClarification = fields.size > 0;
+    if (!fields.size) action.question = null;
+    else if (fields.has("customer"))
+      action.question = matches.length ? "Which customer did you mean? Choose the correct record." : "Which customer is this for? Add or select their record.";
+    else if (fields.has("amount")) action.question = "What is the exact amount in rupees?";
+    else if (fields.has("date")) action.question = "What date did this happen? Use today or an earlier date.";
+    else action.question ||= "Please rephrase the uncertain instruction, or use a manual entry.";
     actions.push(action);
   }
   const row = await db.command.create({

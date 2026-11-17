@@ -218,7 +218,7 @@ try {
           before.providers.llm,
           "Expected the configured live provider",
         );
-        assert.ok(["NVIDIA Nemotron", "Gemini", "OpenAI"].includes(preview.provider), "A demo parser is not a live provider check");
+        assert.ok(["NVIDIA Nemotron + Gemini", "NVIDIA Nemotron", "Gemini", "OpenAI"].includes(preview.provider), "A demo parser is not a live provider check");
         if (c.ambiguous) {
           assert.equal(
             preview.blocked,
@@ -268,7 +268,7 @@ try {
     assert.ok(wav.length > 1000, "Speech audio is unexpectedly short");
   });
   if (wav)
-    await check("Gnani Prisma v3.0 streaming round-trip", async () => {
+    await check(`${before.providers.stt} streaming round-trip`, async () => {
       const transcript = await transcribe(pcm16k(wav));
       assert.ok(
         /ravi/i.test(transcript),

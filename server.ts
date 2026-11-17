@@ -8,16 +8,19 @@ nextEnv.loadEnvConfig(process.cwd(), !process.argv.includes("--production"));
 process.env.DATABASE_URL ||= "file:./khatax.db";
 const dev = !process.argv.includes("--production");
 const port = Number(process.env.PORT || 3000);
-const app = next({ dev, hostname: "127.0.0.1", port, turbopack: false });
+// Next lazily installs an upgrade listener on its httpServer after HTTP traffic.
+// Keep it off the voice-owned server: otherwise it closes the matched /api/voice
+// socket after ws has upgraded it. Non-voice upgrades still reach Next for HMR.
+const nextUpgrades = createServer();
+const app = next({ dev, hostname: "127.0.0.1", port, turbopack: false, httpServer: nextUpgrades });
 await app.prepare();
 const handle = app.getRequestHandler();
-const upgrade = app.getUpgradeHandler();
 const server = createServer((req, res) => handle(req, res));
 const wss = new WebSocketServer({ noServer: true, maxPayload: 8192 });
 server.on("upgrade", (req, socket, head) => {
   const path = new URL(req.url || "/", `http://${req.headers.host}`).pathname;
   if (path !== "/api/voice") {
-    void upgrade(req, socket, head);
+    if (!nextUpgrades.emit("upgrade", req, socket, head)) socket.destroy();
     return;
   }
   const origin = req.headers.origin;

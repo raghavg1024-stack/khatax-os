@@ -59,10 +59,10 @@ test("exact paise, multilingual parsing, and safe ledger lifecycle", async () =>
       data: { name: "Ravi Sharma", nicknames: "Ravi,ರವಿ,రవి" },
     });
     const r1 = await db.customer.create({
-      data: { name: "Ramesh Kumar", nicknames: "Ramesh" },
+      data: { name: "Ramesh Kumar", nicknames: "Ramesh,रमेश" },
     });
     await db.customer.create({
-      data: { name: "Ramesh Patel", nicknames: "Ramesh" },
+      data: { name: "Ramesh Patel", nicknames: "Ramesh,रमेश" },
     });
     await db.customer.create({
       data: { name: "Sunita Devi", nicknames: "Sunita" },
@@ -110,6 +110,37 @@ test("exact paise, multilingual parsing, and safe ledger lifecycle", async () =>
       "Selecting identity must clear its clarification",
     );
     await commit(resolved.id, false);
+    for (const transcript of ["Ramesh ka 340 add karo", "रमेश का 340 उधार जोड़ो"]) {
+      const guessed = await prepare(
+        transcript,
+        [{ ...localExtract("Ramesh ka 340 add karo")[0], customerName: "Ramesh Kumar" }],
+        "NVIDIA Nemotron",
+      );
+      assert.equal(guessed.blocked, true, "A model cannot choose a full name from a shared spoken nickname");
+      assert.equal(guessed.actions[0].candidates?.length, 2);
+      await assert.rejects(() => commit(guessed.id, true), /clarification/);
+    }
+    const exactIdentity = await prepare(
+      "Ramesh Kumar ka 340 add karo",
+      [{ ...localExtract("Ramesh ka 340 add karo")[0], customerName: "Ramesh Kumar" }],
+      "NVIDIA Nemotron",
+    );
+    assert.equal(exactIdentity.blocked, false, "An explicitly spoken full name stays unambiguous");
+    const identityAndAmount = await prepare(
+      "Ramesh 100 or 200 credit",
+      [{ ...localExtract("Ramesh 100 credit")[0], customerName: "Ramesh Kumar", needsClarification: true, question: "What is the amount, 100 or 200?" }],
+      "NVIDIA Nemotron",
+    );
+    const justIdentity = await prepare(identityAndAmount.transcript, identityAndAmount.actions, "NVIDIA Nemotron", {
+      "0": { customerId: r1.id },
+    });
+    assert.equal(justIdentity.blocked, true, "Choosing a customer must not clear amount ambiguity");
+    assert.deepEqual(justIdentity.actions[0].clarificationFields, ["amount"]);
+    const fullyClarified = await prepare(justIdentity.transcript, justIdentity.actions, "NVIDIA Nemotron", {
+      "0": { amount: "200" },
+    });
+    assert.equal(fullyClarified.blocked, false, "Resolved identity survives a later amount edit");
+    assert.equal(fullyClarified.actions[0].customerId, r1.id);
     const multi = await prepare(
       "Ravi ka 100 add karo; Sunita paid 50",
       localExtract("Ravi ka 100 add karo; Sunita paid 50"),
@@ -163,6 +194,51 @@ test("exact paise, multilingual parsing, and safe ledger lifecycle", async () =>
       "0": { date: indiaDate() },
     });
     assert.equal(dateResolved.blocked, false);
+    const ambiguousDateAndAmount = await prepare(
+      "Ravi 100 or 200 credit kal",
+      [{ ...localExtract("Ravi 100 credit")[0], date: null, needsClarification: true, question: "Which amount and date did you mean?" }],
+      "NVIDIA Nemotron",
+    );
+    const justAmount = await prepare(ambiguousDateAndAmount.transcript, ambiguousDateAndAmount.actions, "NVIDIA Nemotron", {
+      "0": { amount: "100" },
+    });
+    assert.equal(justAmount.blocked, true, "An amount edit must not turn an ambiguous date into today");
+    assert.deepEqual(justAmount.actions[0].clarificationFields, ["date"]);
+    await assert.rejects(() => commit(justAmount.id, true), /clarification/);
+    const bothResolved = await prepare(justAmount.transcript, justAmount.actions, "NVIDIA Nemotron", {
+      "0": { date: indiaDate() },
+    });
+    assert.equal(bothResolved.blocked, false);
+    for (const transcript of ["Ravi kal 100 credit", "ரவி 100 கடன்"]) {
+      const omittedDate = await prepare(
+        transcript,
+        [{ ...localExtract("Ravi 100 credit")[0], date: null, needsClarification: false }],
+        "NVIDIA Nemotron + Gemini",
+      );
+      assert.equal(omittedDate.blocked, true, "An omitted model date cannot silently become today in any language");
+      assert.deepEqual(omittedDate.actions[0].clarificationFields, ["date"]);
+      assert.equal(omittedDate.actions[0].occurredOn, undefined);
+    }
+    const uncertainIntent = await prepare(
+      "Ravi maybe 100",
+      [{ ...localExtract("Ravi 100 credit")[0], needsClarification: true, question: "Should this be a payment or credit?" }],
+      "NVIDIA Nemotron",
+      { "0": { amount: "100" } },
+    );
+    assert.equal(uncertainIntent.blocked, true, "An amount edit cannot resolve uncertain business intent");
+    const expired = await prepare("Ravi 7 credit", localExtract("Ravi 7 credit"), "test");
+    await db.command.update({ where: { id: expired.id }, data: { createdAt: new Date(Date.now() - 16 * 60 * 1000) } });
+    const beforeExpired = await db.entry.count();
+    await assert.rejects(() => commit(expired.id, true), /expired/);
+    await db.command.update({ where: { id: expired.id }, data: { state: "cancelled" } });
+    await assert.rejects(() => commit(expired.id, true), /no longer available/);
+    assert.equal(await db.entry.count(), beforeExpired, "Expired and cancelled previews cannot post");
+    const racing = await prepare("Ravi 0.01 credit", localExtract("Ravi 0.01 credit"), "test");
+    const beforeRacing = await db.entry.count();
+    const racingResults = await Promise.allSettled([commit(racing.id, false), commit(racing.id, false)]);
+    assert.ok(racingResults.some((result) => result.status === "fulfilled"));
+    assert.equal(await db.entry.count(), beforeRacing + 1, "Concurrent confirmation creates exactly one financial entry");
+    assert.equal((await commit(racing.id, false)).idempotent, true);
     const beforeQuery = await db.entry.count();
     const query = await prepare(
       "Ravi balance",

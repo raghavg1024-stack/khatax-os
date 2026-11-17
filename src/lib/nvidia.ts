@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import {z} from "zod";
-import {extractionSchema} from "./shared";
+import {extractionSchema, toPaise, type ExtractedAction} from "./shared";
+import {zodResponseFormat} from "openai/helpers/zod";
 import {UserInputError} from "./errors";
 import {assertProviderKey} from "./provider-config";
 
@@ -21,7 +22,8 @@ export async function extractNvidia(text: string, instruction: string, key: stri
         {role:"system",content:`${instruction}\nReturn only JSON matching this schema: ${JSON.stringify(z.toJSONSchema(extractionSchema))}`},
         {role:"user",content:text},
       ],
-      response_format: {type:"json_object"},
+      response_format: zodResponseFormat(extractionSchema,"ledger_intentions"),
+      temperature: 0,
       max_tokens: 4096,
       stream: false,
       ...{chat_template_kwargs:{enable_thinking:false}},
@@ -42,4 +44,31 @@ export async function extractNvidia(text: string, instruction: string, key: stri
   } catch {
     throw new UserInputError("NVIDIA did not return a complete, valid ledger instruction. Rephrase or use a manual entry.", "nvidia_invalid_output", 502);
   }
+}
+
+/** BhashaBridge understands the original language; Nemotron checks the normalized plan's consistency. */
+export async function reviewWithNvidia(actions: ExtractedAction[], instruction: string, key: string) {
+  const reviewed = await extractNvidia(
+    `Review these normalized ledger intentions. Preserve their exact action order, amounts, customer names, dates, and unresolved questions. Do not invent or expand any field. Return the same ledger schema.\n${JSON.stringify({actions})}`,
+    instruction,
+    key,
+  );
+  const amountKey = (value: string | null) => {
+    if (value === null) return null;
+    try { return toPaise(value); } catch { return value.trim(); }
+  };
+  if (
+    reviewed.length !== actions.length ||
+    actions.some((action,index) => {
+      const other=reviewed[index];
+      return action.kind !== other.kind ||
+        (!action.needsClarification && amountKey(action.amount) !== amountKey(other.amount)) ||
+        (action.date !== null && action.date !== other.date);
+    })
+  ) throw new UserInputError("The language checks disagreed about this instruction. Rephrase it or use a manual entry; nothing was posted.","intent_disagreement",422);
+  return actions.map((action,index)=>({
+    ...action,
+    needsClarification: action.needsClarification || reviewed[index].needsClarification,
+    question: action.question || reviewed[index].question,
+  }));
 }

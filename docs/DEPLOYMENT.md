@@ -21,6 +21,8 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 | Variable             | Secret?              | Meaning                                        |
 | -------------------- | -------------------- | ---------------------------------------------- |
 | `DATABASE_URL`       | Local path/config    | Prisma CLI SQLite URL for local migration work |
+| `SARVAM_API_KEY`     | Yes                  | All-22-language realtime recognition           |
+| `SARVAM_STT_MODEL`   | No                   | Defaults to `saaras:v4`                         |
 | `NVIDIA_API_KEY`     | Yes                  | Preferred Nemotron credential                  |
 | `NVIDIA_MODEL`       | No                   | Defaults to `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | `GEMINI_API_KEY`     | Yes                  | Preferred LLM credential                       |
@@ -89,7 +91,9 @@ For Gemini, `gemini_rate_limited` means the request reached Google's rate/quota 
 
 References: [Gemini model](https://aistudio.google.com/docs/models/gemini-3.5-flash-lite), [structured output](https://aistudio.google.com/docs/structured-output), [REST API](https://aistudio.google.com/api-reference/generate-content).
 
-NVIDIA uses `https://integrate.api.nvidia.com/v1/chat/completions` through the existing OpenAI-compatible SDK. Nemotron 3.5 Lightning requests use the documented JSON mode with thinking disabled, include the action schema in the system instructions, and validate the completed output with Zod on the server. JSON mode alone is not schema enforcement. Incomplete output, unknown action kinds, malformed amounts, and provider errors cannot commit financial entries. Labels and saved previews identify `NVIDIA Nemotron`; failures do not silently switch to Gemini. See [NVIDIA's hosted model/API example](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/build) and [Lightning JSON-mode documentation](https://docs.nvidia.com/nim/large-language-models/2.0.10/get-started/advanced/get-started-nemotron-3.5-lightning.html).
+NVIDIA uses `https://integrate.api.nvidia.com/v1/chat/completions` through the existing compatible SDK. Nemotron 3.5 Lightning uses deterministic sampling and schema-constrained JSON; this request format was accepted in live tests. The server still validates the completed output with Zod. When Gemini is also configured, Gemini first proposes the native-language meaning; Nemotron checks the normalized plan, and deterministic code blocks disagreement about action kinds, amounts, or specified dates. This is a consistency check, not independent proof of translation accuracy. Original names and uncertainty are preserved for downstream guards and user review. Labels identify `NVIDIA Nemotron + Gemini`; failures do not silently change providers. See [NVIDIA's hosted API example](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/build).
+
+Sarvam Saaras v4 recognition uses the documented realtime endpoint with `Api-Subscription-Key`, linear16 PCM, 16 kHz samples, and `session.begin` / `audio_input` / `transcript.final` / `end` events. The shared relay enforces session, frame, transcript, and buffering limits, and closes upstream audio when the browser cancels. The catalog covers 22 scheduled languages plus English and automatic detection; see [language coverage and live verification](LANGUAGES.md).
 
 ## Updates and rollback
 

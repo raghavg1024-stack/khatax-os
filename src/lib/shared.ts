@@ -54,6 +54,7 @@ export const extractionSchema = z.object({
 });
 export type ExtractedAction = z.infer<typeof actionSchema>;
 export type ResolvedAction = ExtractedAction & {
+  clarificationFields?: ("customer" | "amount" | "date" | "intent")[];
   customerId?: string;
   amountPaise?: number;
   occurredOn?: string;
@@ -101,7 +102,14 @@ export type Snapshot = {
     protectedEntries: number;
   };
   chart: { date: string; label: string; credit: number; payment: number }[];
-  providers: { llm: string; stt: string; tts: string; gnaniVoice: boolean };
+  providers: {
+    llm: string;
+    stt: string;
+    tts: string;
+    gnaniVoice: boolean;
+    sarvamVoice: boolean;
+    streamingVoice: boolean;
+  };
   today: string;
   storage: "Hosted SQLite" | "Local SQLite";
 };
