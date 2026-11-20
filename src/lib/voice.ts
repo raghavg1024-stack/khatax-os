@@ -73,7 +73,7 @@ export async function streamingRecognition(
   onError: (message: string) => void,
   onLevel: (level: number) => void,
   onReady?: () => void,
-  recovery: { fileRecovery?: boolean; onRecover?: () => void } = {},
+  recovery: { fileRecovery?: boolean; onRecover?: () => void; onLanguage?: (code: string) => void } = {},
 ): Promise<VoiceHandle> {
   // Unlock audio in the mic button's user gesture, before permission/network awaits.
   // Mobile browsers can leave a context created in a WebSocket callback suspended.
@@ -169,6 +169,7 @@ export async function streamingRecognition(
       if (!response.ok || typeof result.text !== "string" || !result.text.trim())
         throw new Error(result.error || "Speech-to-text returned no words. Check the microphone and retry.");
       hasFinal = true;
+      if (typeof result.language === "string") recovery.onLanguage?.(result.language);
       onText(result.text.trim(),true);
       cleanup();
     } catch (error) {
@@ -219,6 +220,7 @@ export async function streamingRecognition(
       }
       if (msg.type === "transcript" && msg.text) {
         hasFinal = true;
+        if (typeof msg.language === "string") recovery.onLanguage?.(msg.language);
         onText(msg.text, true);
         cleanup();
       }

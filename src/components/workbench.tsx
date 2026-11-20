@@ -63,6 +63,8 @@ import {
   type VoiceHandle,
 } from "@/lib/voice";
 import { AUTO_LANGUAGE, LANGUAGES } from "@/lib/languages";
+import { conversationFollowup, replyLanguage as inferReplyLanguage } from "@/lib/conversation";
+import { beginsCustomerConversation, advanceCustomer, draftQuestion, type CustomerDraft } from "@/lib/customer-conversation";
 import {
   indiaDate,
   money,
@@ -208,6 +210,12 @@ export default function Workbench() {
   const [voiceFinishing, setVoiceFinishing] = useState(false);
   const [level, setLevel] = useState(0);
   const [voiceOn, setVoiceOn] = useState(false);
+  const voiceEnabled = useRef(false);
+  const responseLanguage = useRef("en-IN");
+  const [assistantReply, setAssistantReply] = useState("");
+  const [customerDraft,setCustomerDraft] = useState<CustomerDraft|null>(null);
+  const conversationActive = useRef(false);
+  const nextVoiceTurn = useRef<()=>void>(()=>{});
   const [expandedAudit, setExpandedAudit] = useState("");
   const voice = useRef<VoiceHandle | null>(null);
   const voiceSession = useRef(0);
@@ -303,18 +311,36 @@ export default function Workbench() {
     updateUrl({ q: value });
   }
   async function speak(message: string) {
-    if (!voiceOn) return;
     const session = ++replySession.current;
+    const spokenLanguage = responseLanguage.current;
     try {
       audio.current?.pause();
       window.speechSynthesis?.cancel();
-      if (data?.providers.gnaniVoice) {
+      let responseText = message;
+      if (spokenLanguage !== "en-IN" && data?.providers.sarvamVoice) {
+        const translated = await apiReply(message, spokenLanguage);
+        if (session !== replySession.current) return;
+        responseText = translated;
+      }
+      setAssistantReply(responseText);
+      if (!voiceEnabled.current) return;
+      if (data?.providers.gnaniVoice || data?.providers.sarvamVoice) {
         const res = await fetch("/api/speak", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: message, language: "en-IN" }),
+          body: JSON.stringify({ text: responseText, language: spokenLanguage }),
         });
         if (session !== replySession.current) return;
+        if (res.status === 501 && window.speechSynthesis) {
+          const matching = window.speechSynthesis.getVoices().find(v=>v.lang.split("-")[0] === spokenLanguage.split("-")[0]);
+          if (!matching) throw new Error("A spoken voice is unavailable for this language. The translated reply is shown below.");
+          const utterance = new SpeechSynthesisUtterance(responseText);
+          utterance.lang = spokenLanguage;
+          utterance.voice = matching;
+          utterance.onend = () => { if (conversationActive.current && voiceEnabled.current) nextVoiceTurn.current(); };
+          window.speechSynthesis.speak(utterance);
+          return;
+        }
         if (!res.ok)
           throw new Error(
             "Voice reply failed. The written result is available.",
@@ -324,16 +350,24 @@ export default function Workbench() {
         if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
         audioUrl.current = URL.createObjectURL(blob);
         audio.current = new Audio(audioUrl.current);
+        audio.current.onended = () => { if (conversationActive.current && voiceEnabled.current) nextVoiceTurn.current(); };
         await audio.current.play();
       } else if (window.speechSynthesis) {
-        const utterance = new SpeechSynthesisUtterance(message);
-        utterance.lang = "en-IN";
+        const utterance = new SpeechSynthesisUtterance(responseText);
+        utterance.lang = spokenLanguage;
+        utterance.onend = () => { if (conversationActive.current && voiceEnabled.current) nextVoiceTurn.current(); };
         window.speechSynthesis.speak(utterance);
       } else throw new Error("Browser voice replies are unavailable.");
     } catch (e) {
       if (session !== replySession.current) return;
       setError(e instanceof Error ? e.message : "Could not play voice reply.");
     }
+  }
+  async function apiReply(message: string, language: string) {
+    const res = await fetch("/api/reply", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:message.slice(0,700),language})});
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "Could not translate the assistant reply.");
+    return body.text as string;
   }
   async function work(fn: () => Promise<void>) {
     if (requestLock.current) return;
@@ -351,24 +385,66 @@ export default function Workbench() {
   }
   function showPreview(result: Preview) {
     setPreview(result);
+    conversationActive.current = true;
+    setAssistantReply("");
     setAck(false);
     setOverrides({});
     assistant.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const uncertain = result.actions.find((a) => a.needsClarification);
     const reply = result.blocked
-      ? result.actions.find((a) => a.needsClarification)?.question
+      ? `${uncertain?.question || "Please clarify this instruction."} ${uncertain?.candidates?.map((c,i)=>`${i+1}: ${c.name}`).join(". ") || (uncertain?.customerName ? "Say create customer to add this person, or cancel." : "")}`
       : result.answers.length
         ? result.answers.join(" ")
-        : "Please review the transaction before recording.";
+        : `${result.actions.map(a=>`${a.kind}: ${a.amountPaise != null ? money(a.amountPaise) : ""} for ${a.customerName || "your shop"}`).join(". ")}. ${result.warnings.join(" ")} Say confirm to record, or cancel.`;
     if (reply) void speak(reply);
   }
   async function submitCommand(value = text) {
     if (!value.trim()) return;
+    responseLanguage.current = inferReplyLanguage(value, responseLanguage.current);
     voiceSession.current++;
     voice.current?.stop();
     voice.current = null;
     setListening(false);
     setVoiceFinishing(false);
     voiceStopRequested.current = false;
+    if (customerDraft) {
+      const turn = advanceCustomer(customerDraft,value);
+      setText("");
+      if (turn.kind === "cancel") { setCustomerDraft(null); conversationActive.current=false; await speak("Customer creation cancelled. Nothing was saved."); return; }
+      if (turn.kind === "error") { await speak(turn.message); return; }
+      if (turn.kind === "save") {
+        await work(async()=>{
+          await api({op:"customer",name:turn.draft.name,phone:turn.draft.phone,nicknames:turn.draft.nicknames});
+          setCustomerDraft(null); conversationActive.current=false; await refresh();
+          await speak(`Customer ${turn.draft.name} was added. You can now record a transaction.`);
+        });
+      } else { setCustomerDraft(turn.draft); await speak(draftQuestion(turn.draft)); }
+      return;
+    }
+    if (preview) {
+      const followup = conversationFollowup(value, preview);
+      if (followup.kind === "cancel") { await discard(); return; }
+      if (followup.kind === "confirm") { await confirm(true); return; }
+      if (followup.kind === "create") { await createCustomerForAction(followup.index); return; }
+      if (followup.kind === "clarify") {
+        await work(async () => showPreview(await api({op:"clarify",commandId:preview.id,overrides:followup.overrides})));
+        return;
+      }
+      if (preview.blocked && preview.actions.some(a=>a.clarificationFields?.includes("customer") && a.candidates?.length)) {
+        await work(async()=>{
+          try { showPreview(await api({op:"answerCustomer",commandId:preview.id,text:value})); }
+          catch { await speak("Please say the full customer name or their option number."); }
+        });
+        return;
+      }
+      await speak("Please answer the current clarification, say confirm, or say cancel before starting another transaction.");
+      return;
+    }
+    if (beginsCustomerConversation(value)) {
+      const draft:CustomerDraft={step:"name",name:"",phone:"",nicknames:""};
+      setCustomerDraft(draft); setText(""); conversationActive.current=true;
+      await speak(draftQuestion(draft)); return;
+    }
     await work(async () => {
       const result = await api({ op: "preview", text: value });
       showPreview(result);
@@ -393,6 +469,9 @@ export default function Workbench() {
       return;
     }
     setError("");
+    voiceEnabled.current = true;
+    setVoiceOn(true);
+    responseLanguage.current = language === "auto" ? "en-IN" : language;
     setText("");
     replySession.current++;
     audio.current?.pause();
@@ -434,6 +513,7 @@ export default function Workbench() {
       const handle = useServerSpeech
         ? await streamingRecognition(language, onText, end, fail, setLevel, ready, {
           fileRecovery: !!data?.providers.sarvamVoice,
+          onLanguage: code => { responseLanguage.current = code; },
           onRecover: () => { if (session === voiceSession.current) setVoiceFinishing(true); },
         })
         : browserRecognition(language, onText, end, fail);
@@ -451,15 +531,17 @@ export default function Workbench() {
       setError(e instanceof Error ? e.message : "Microphone is unavailable.");
     }
   }
-  async function confirm() {
+  nextVoiceTurn.current = () => { if (!requestLock.current) void startVoice(); };
+  async function confirm(spokenApproval = false) {
     if (!preview) return;
     await work(async () => {
       const result = await api({
         op: "commit",
         commandId: preview.id,
-        acknowledge: ack,
+        acknowledge: spokenApproval || ack,
       });
       setPreview(null);
+      conversationActive.current=false;
       setText("");
       const message = [result.message, ...(result.answers ?? [])].join(" ");
       setNotice(message);
@@ -472,6 +554,7 @@ export default function Workbench() {
     await work(async () => {
       await api({ op: "cancel", commandId: preview.id });
       setPreview(null);
+      conversationActive.current=false;
       setText("");
     });
   }
@@ -481,6 +564,16 @@ export default function Workbench() {
       showPreview(
         await api({ op: "clarify", commandId: preview.id, overrides }),
       );
+    });
+  }
+  async function createCustomerForAction(index: number) {
+    const action = preview?.actions[index];
+    if (!preview || !action?.customerName || action.candidates?.length || !action.clarificationFields?.includes("customer")) return;
+    await work(async () => {
+      const result = await api({op:"customer",name:action.customerName,phone:"",nicknames:""});
+      const resolved = await api({op:"clarify",commandId:preview.id,overrides:{[index]:{customerId:result.customer.id}}});
+      await refresh();
+      showPreview(resolved);
     });
   }
   function editCustomer(customer?: Customer) {
@@ -744,7 +837,9 @@ export default function Workbench() {
       aria-pressed={voiceOn}
       onClick={() => {
         setVoiceOn(!voiceOn);
+        voiceEnabled.current = !voiceOn;
         if (voiceOn) {
+          conversationActive.current=false;
           replySession.current++;
           window.speechSynthesis?.cancel();
           audio.current?.pause();
@@ -754,6 +849,9 @@ export default function Workbench() {
       {voiceOn ? <Volume2 size={17} /> : <VolumeX size={17} />}
     </button>
   </div>
+  {!preview && assistantReply && <p className="answer" lang={responseLanguage.current}>{assistantReply}</p>}
+  {customerDraft?.step === "review" && <p className="answer">{customerDraft.name} · {customerDraft.phone || "—"} · {customerDraft.nicknames || "—"}</p>}
+  {customerDraft && <button className="text-button" onClick={()=>{setCustomerDraft(null);conversationActive.current=false;voiceSession.current++;voice.current?.stop();setListening(false);void speak("Customer creation cancelled. Nothing was saved.");}}>Cancel customer setup</button>}
   {!preview ? (
     <>
       <div className="assistant-steps" aria-label="Command workflow"><span className="current">1 <b>Speak</b></span><ChevronRight size={12} /><span>2 <b>Review</b></span><ChevronRight size={12} /><span>3 <b>Record</b></span></div>
@@ -865,6 +963,7 @@ export default function Workbench() {
     </>
   ) : (
     <div className="preview-area" aria-live="polite">
+      {assistantReply && <p className="answer" lang={responseLanguage.current}>{assistantReply}</p>}
       <div className="preview-heading">
         <span
           className={
@@ -946,6 +1045,7 @@ export default function Workbench() {
                     ))}
                   </select>
                 ) : null}
+                {action.clarificationFields?.includes("customer") && !action.candidates?.length && action.customerName && <Button variant="outline" disabled={busy} onClick={()=>void createCustomerForAction(i)}>Create customer: {action.customerName}</Button>}
                 {(action.clarificationFields?.includes("amount") ?? (!action.amountPaise ||
                   /amount/i.test(action.question ?? ""))) &&
                   ["credit", "payment", "correct"].includes(
@@ -1015,6 +1115,7 @@ export default function Workbench() {
         </div>
       )}
       <div className="review-controls">
+        <Button variant="outline" aria-label="Answer assistant by voice" disabled={busy || voiceFinishing} onClick={()=>void startVoice()}><Mic size={16}/>{listening ? "Stop listening" : "Reply by voice"}</Button>
         {preview.blocked ? (
           <Button
             onClick={() => void clarify()}

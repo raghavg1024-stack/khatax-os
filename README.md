@@ -32,6 +32,12 @@ Manual and voice entries use the same financial rules. Posting, editing customer
 
 ## How the website remembers
 
+### Guided shop conversations
+
+Say “add a customer” or “नया ग्राहक जोड़ो” to start collecting a name, optional mobile number, and nickname. The assistant reads back the details and saves only after confirmation. For ambiguous ledger names it lists matching customers and accepts a spoken full name or option number, then asks for confirmation before posting. Say cancel to discard. After a spoken question, listening resumes automatically; mute voice replies to stop the conversation.
+
+Replies use the recognized language. Sarvam translation supports the 22 scheduled languages plus English. Server audio uses Sarvam Bulbul for its 11 supported language codes; English retains Gnani. Other languages require an installed matching browser voice, with an explicit written-only message if unavailable. Financial values are protected during reply translation; translated prose never controls balances.
+
 Customers, nicknames, financial entries, reversals, reviewed commands, and audit events are saved in SQLite. Refreshing the browser does not erase them. The hosted deployment uses an external SQLite database so replacing a server instance or deploying new code does not erase them either.
 
 Each AI extraction reads the current customer directory. Balance questions and summaries use saved ledger entries through deterministic application code. A new customer is available to future commands without retraining a model. This is durable business-record memory, not unlimited chat memory or a claim that the model trains itself on the shop.

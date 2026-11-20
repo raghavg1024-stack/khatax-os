@@ -4,6 +4,7 @@ import { UserInputError } from "@/lib/errors";
 import { db } from "@/lib/db";
 import { audit, clarify, commit, prepare } from "@/lib/ledger";
 import { extract } from "@/lib/intent";
+import { resolveCustomerName } from "@/lib/customer-answer";
 import {
   dateSchema,
   indiaDate,
@@ -59,6 +60,7 @@ const requestSchema = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("cancel"), commandId: id }),
   z.object({ op: z.literal("reverse"), entryId: id }),
+  z.object({op:z.literal("answerCustomer"),commandId:id,text:z.string().trim().min(1).max(200)}),
 ]);
 export async function POST(req: Request) {
   if (!isSameOriginRequest(req))
@@ -125,6 +127,16 @@ export async function POST(req: Request) {
     }
     if (body.op === "clarify") {
       return Response.json(await clarify(body.commandId, body.overrides));
+    }
+    if (body.op === "answerCustomer") {
+      const command=await db.command.findUniqueOrThrow({where:{id:body.commandId}});
+      if(command.state!=="pending" || Date.now()-command.createdAt.getTime()>15*60*1000) throw new UserInputError("Review this command again before answering.");
+      const actions=JSON.parse(command.actions) as ResolvedAction[];
+      const index=actions.findIndex(a=>a.needsClarification && a.clarificationFields?.includes("customer") && a.candidates?.length);
+      if(index<0) throw new UserInputError("No customer selection is pending.");
+      const customerId=await resolveCustomerName(body.text,actions[index].candidates!);
+      if(!customerId) throw new UserInputError("Please say the full customer name or their option number.");
+      return Response.json(await clarify(body.commandId,{[index]:{customerId}}));
     }
     if (body.op === "commit")
       return Response.json(await commit(body.commandId, body.acknowledge));
