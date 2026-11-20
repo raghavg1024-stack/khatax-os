@@ -57,6 +57,9 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
+import dynamic from "next/dynamic";
+import {offlineDrafts,saveOfflineDraft,recordOfflineVoice,type OfflineDraft} from "@/lib/offline";
+const ShopTools=dynamic(()=>import("./shop-tools"),{ssr:false});
 import {
   browserRecognition,
   streamingRecognition,
@@ -194,6 +197,11 @@ export default function Workbench() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [entryDialog, setEntryDialog] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [shopToolsOpen,setShopToolsOpen]=useState(false);
+  const [shopCommand,setShopCommand]=useState("");
+  const [offlineCount,setOfflineCount]=useState(0);
+  const [offlineRecording,setOfflineRecording]=useState(false);
+  const preparedDraft=useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -242,6 +250,8 @@ export default function Workbench() {
   }, []);
   useEffect(() => {
     void refresh();
+    const sync=()=>{void offlineDrafts().then(rows=>setOfflineCount(rows.length)).catch(()=>{});};
+    sync();window.addEventListener("online",sync);
     const read = () => {
       const p = new URLSearchParams(location.search);
       setTab(
@@ -268,6 +278,7 @@ export default function Workbench() {
     return () => {
       window.removeEventListener("popstate", read);
       window.removeEventListener("keydown", key);
+      window.removeEventListener("online",sync);
       voiceSession.current++;
       replySession.current++;
       voice.current?.stop();
@@ -384,6 +395,8 @@ export default function Workbench() {
     }
   }
   function showPreview(result: Preview) {
+    preparedDraft.current=true;
+    setText("");
     setPreview(result);
     conversationActive.current = true;
     setAssistantReply("");
@@ -400,6 +413,10 @@ export default function Workbench() {
   }
   async function submitCommand(value = text) {
     if (!value.trim()) return;
+    if(!navigator.onLine){
+      if(preview||customerDraft){setError("Reconnect before answering or confirming this conversation. Nothing was posted.");return;}
+      try{await saveOfflineDraft({kind:"text",text:value,language});setOfflineCount((await offlineDrafts()).length);setNotice("Command saved on this device. Open Shop tools → Offline drafts when connected; nothing has been posted.");setText("");}catch(e){setError(e instanceof Error?e.message:"Offline storage failed.");}return;
+    }
     responseLanguage.current = inferReplyLanguage(value, responseLanguage.current);
     voiceSession.current++;
     voice.current?.stop();
@@ -445,6 +462,12 @@ export default function Workbench() {
       setCustomerDraft(draft); setText(""); conversationActive.current=true;
       await speak(draftQuestion(draft)); return;
     }
+    if(shopToolsOpen && /\b(took|sold|sale|bought|bag|kg)\b|बिक्री|लिया/u.test(shopCommand.toLowerCase())){
+      setShopCommand(previous=>`${previous}. Clarification: ${value}`);setText("");return;
+    }
+    if(/\b(inventory|stock|supplier|invoice|forecast|cash.?flow|what.?if|simulate|overdue|reminder|shop memory|why.*balance|took.*(?:bag|kg|rice)|sold|sale)\b|स्टॉक|बिल|आपूर्तिकर्ता|पूर्वानुमान|बिक्री/u.test(value.toLowerCase())){
+      setShopCommand(value);setShopToolsOpen(true);setText("");return;
+    }
     await work(async () => {
       const result = await api({ op: "preview", text: value });
       showPreview(result);
@@ -457,6 +480,11 @@ export default function Workbench() {
       setVoiceFinishing(true);
       voice.current?.stop();
       return;
+    }
+    if(!navigator.onLine){
+      const generation=++voiceSession.current;setError("");setListening(true);setVoiceReady(true);setOfflineRecording(true);conversationActive.current=false;
+      try{const handle=await recordOfflineVoice(async audio=>{await saveOfflineDraft({kind:"audio",audio,language});setOfflineCount((await offlineDrafts()).length);setNotice("Offline voice recording saved on this device. Transcribe and review it from Shop tools → Offline drafts after reconnecting.");},()=>{if(generation===voiceSession.current){setListening(false);setOfflineRecording(false);setVoiceFinishing(false);voiceStopRequested.current=false;voice.current=null;}},setError);if(generation!==voiceSession.current)handle.stop();else voice.current=handle;}
+      catch(e){setListening(false);setOfflineRecording(false);setError(e instanceof Error?e.message:"Could not record offline.");}return;
     }
     const selectedLanguage = LANGUAGES.find((item) => item.code === language);
     const useServerSpeech = data?.providers.streamingVoice && recognitionMode !== "browser";
@@ -532,6 +560,12 @@ export default function Workbench() {
     }
   }
   nextVoiceTurn.current = () => { if (!requestLock.current) void startVoice(); };
+  async function replayOffline(draft:OfflineDraft){
+    if(preview||customerDraft)throw new Error("Finish or discard the current conversation before replaying an offline draft.");
+    let value=draft.text||"";
+    if(draft.audio){const res=await fetch(`/api/transcribe?language=${encodeURIComponent(draft.language)}`,{method:"POST",headers:{"Content-Type":draft.audio.type},body:draft.audio});const result=await res.json();if(!res.ok)throw new Error(result.error||"Could not transcribe this recording.");value=result.text;responseLanguage.current=result.language||"en-IN";}
+    preparedDraft.current=false;await submitCommand(value);return preparedDraft.current;
+  }
   async function confirm(spokenApproval = false) {
     if (!preview) return;
     await work(async () => {
@@ -829,6 +863,7 @@ export default function Workbench() {
         <small className="demo-badge">Browser demo</small>
       )}
     </div>
+    <button className="icon-button" aria-label="Open shop tools" title={offlineCount?`${offlineCount} offline drafts`:"Shop tools"} onClick={()=>{setShopCommand("");setShopToolsOpen(true);}}><Sparkles size={17}/>{offlineCount>0&&<small>{offlineCount}</small>}</button>
     <button
       className="icon-button"
       aria-label={
@@ -902,6 +937,7 @@ export default function Workbench() {
             ? "Understanding your command…"
             : voiceFinishing
               ? "Transcribing your recording…"
+            : offlineRecording ? "Recording offline… tap Stop when finished"
             : listening
               ? voiceReady ? "Listening… speak naturally" : "Connecting microphone… wait before speaking"
               : "Tap the mic. Speak naturally."}
@@ -1115,7 +1151,7 @@ export default function Workbench() {
         </div>
       )}
       <div className="review-controls">
-        <Button variant="outline" aria-label="Answer assistant by voice" disabled={busy || voiceFinishing} onClick={()=>void startVoice()}><Mic size={16}/>{listening ? "Stop listening" : "Reply by voice"}</Button>
+        <Button variant="outline" style={{color:"var(--color-assistant-ink)",borderColor:"var(--color-assistant-rule)"}} aria-label="Answer assistant by voice" disabled={busy || voiceFinishing} onClick={()=>void startVoice()}><Mic size={16}/>{listening ? "Stop listening" : "Reply by voice"}</Button>
         {preview.blocked ? (
           <Button
             onClick={() => void clarify()}
@@ -1198,17 +1234,18 @@ export default function Workbench() {
             void submitCommand();
           }
         }}
-        disabled={busy || listening || !!preview}
+        disabled={busy || listening}
       />
       <button
-        type="submit"
-        disabled={busy || !text.trim() || !!preview}
-        aria-label="Understand command"
+        type={text.trim() && !listening ? "submit" : "button"}
+        onClick={text.trim() && !listening ? undefined : ()=>void startVoice()}
+        disabled={busy || voiceFinishing}
+        aria-label={listening ? "Stop listening" : text.trim() ? "Understand command" : "Reply to assistant by voice"}
       >
         {busy ? (
           <LoaderCircle className="spin" size={17} />
         ) : (
-          <ArrowRight size={19} />
+          text.trim() && !listening ? <ArrowRight size={19} /> : <Mic size={19} />
         )}
       </button>
     </form>
@@ -1225,6 +1262,7 @@ export default function Workbench() {
 
   return (
     <>
+      <ShopTools open={shopToolsOpen} onOpenChange={setShopToolsOpen} customers={data?.customers||[]} onRefresh={refresh} onReplay={replayOffline} onAnswer={message=>{conversationActive.current=false;void speak(message);}} onVoice={()=>void startVoice()} listening={listening} voiceFinishing={voiceFinishing} initialCommand={shopCommand}/>
       <a className="skip-link" href="#main">
         Skip to ledger
       </a>

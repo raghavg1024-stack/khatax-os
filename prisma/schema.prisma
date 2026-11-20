@@ -47,3 +47,77 @@ model Command {
   state String @default("pending")
   createdAt DateTime @default(now())
 }
+
+model Product {
+  id String @id @default(cuid())
+  name String @unique
+  sku String? @unique
+  unit String @default("unit")
+  stockMilli Int @default(0)
+  pricePaise Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model Supplier {
+  id String @id @default(cuid())
+  name String
+  phone String @default("")
+  createdAt DateTime @default(now())
+}
+model SupplierInvoice {
+  id String @id @default(cuid())
+  supplierId String
+  reference String
+  totalPaise Int
+  taxPaise Int @default(0)
+  dueOn String
+  occurredOn String
+  lines String
+  key String @unique
+  createdAt DateTime @default(now())
+  @@unique([supplierId, reference])
+  @@index([dueOn])
+}
+model SupplierPayment {
+  id String @id @default(cuid())
+  supplierId String
+  amountPaise Int
+  occurredOn String
+  key String @unique
+  createdAt DateTime @default(now())
+}
+model InventoryMovement {
+  id String @id @default(cuid())
+  productId String
+  deltaMilli Int
+  reason String
+  reference String
+  createdAt DateTime @default(now())
+  @@index([productId])
+}
+model Sale {
+  id String @id @default(cuid())
+  customerId String?
+  totalPaise Int
+  mode String
+  entryId String? @unique
+  lines String
+  key String @unique
+  occurredOn String
+  createdAt DateTime @default(now())
+}
+model CashRecord {
+  id String @id @default(cuid())
+  kind String
+  amountPaise Int
+  occurredOn String
+  key String @unique
+  note String @default("")
+  createdAt DateTime @default(now())
+}
+model BusinessOperation {
+  key String @id
+  fingerprint String
+  result String
+  createdAt DateTime @default(now())
+}

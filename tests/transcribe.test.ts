@@ -74,3 +74,14 @@ test("file STT validates bounded audio, preserves auto detection, and masks prov
     else process.env.SARVAM_API_KEY = previousKey;
   }
 });
+
+test("offline WebM recordings use the same bounded real speech model",async()=>{
+  const previousFetch=globalThis.fetch,previousKey=process.env.SARVAM_API_KEY;
+  process.env.SARVAM_API_KEY="sarvam-test-placeholder";
+  const bytes=new Uint8Array([0x1a,0x45,0xdf,0xa3,0x80,0x81]);
+  try{
+    globalThis.fetch=async(_url,init)=>{const file=(init?.body as FormData).get("file") as File;assert.equal(file.type,"audio/webm");assert.deepEqual(new Uint8Array(await file.arrayBuffer()),bytes);return Response.json({transcript:"Hello",language_code:"en-IN"});};
+    const req=new Request("https://shop.example/api/transcribe?language=auto",{method:"POST",headers:{origin:"https://shop.example","Content-Type":"audio/webm"},body:bytes});
+    assert.equal((await POST(req)).status,200);
+  }finally{globalThis.fetch=previousFetch;if(previousKey===undefined)delete process.env.SARVAM_API_KEY;else process.env.SARVAM_API_KEY=previousKey;}
+});

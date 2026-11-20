@@ -43,16 +43,18 @@ export async function POST(request: Request) {
     return error("The microphone recording was interrupted. Retry.", "speech_audio_invalid");
   }
   const wav = Buffer.concat(chunks, length);
-  if (length < 46 || wav.toString("ascii", 0, 4) !== "RIFF" ||
+  const webm=request.headers.get("content-type")?.split(";")[0]==="audio/webm" && length>=4 && wav.subarray(0,4).toString("hex")==="1a45dfa3";
+  const validWav=!(length < 46 || wav.toString("ascii", 0, 4) !== "RIFF" ||
       wav.readUInt32LE(4) !== length - 8 || wav.toString("ascii", 8, 16) !== "WAVEfmt " ||
       wav.readUInt32LE(16) !== 16 || wav.readUInt16LE(20) !== 1 ||
       wav.readUInt16LE(22) !== 1 || wav.readUInt32LE(24) !== 16000 ||
       wav.readUInt32LE(28) !== 32000 || wav.readUInt16LE(32) !== 2 ||
       wav.readUInt16LE(34) !== 16 || wav.toString("ascii", 36, 40) !== "data" ||
-      wav.readUInt32LE(40) !== length - 44 || (length - 44) % 2 !== 0)
+      wav.readUInt32LE(40) !== length - 44 || (length - 44) % 2 !== 0);
+  if(!webm && !validWav)
     return error("Use a mono 16 kHz, 16-bit WAV microphone recording.", "speech_audio_invalid");
   const form = new FormData();
-  form.set("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "command.wav");
+  form.set("file", new Blob([new Uint8Array(wav)], { type: webm ? "audio/webm" : "audio/wav" }), webm ? "command.webm" : "command.wav");
   form.set("model", "saaras:v4");
   form.set("mode", "codemix");
   // REST calls auto-detection 'unknown'; realtime calls it 'auto'.

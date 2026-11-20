@@ -29,6 +29,7 @@ Manual and voice entries use the same financial rules. Posting, editing customer
 - [All 22 scheduled languages, English, provider coverage, and verification limits](docs/LANGUAGES.md)
 - [Five-minute hackathon demo](docs/DEMO.md)
 - [Tests, live-provider verification, and remaining limitations](VALIDATION.md)
+- [Inventory, invoices, memory, forecasts, reminders, scenarios, and offline drafts](docs/BUSINESS.md)
 
 ## How the website remembers
 
