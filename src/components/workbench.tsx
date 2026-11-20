@@ -203,6 +203,7 @@ export default function Workbench() {
     Record<string, { customerId?: string; amount?: string; date?: string }>
   >({});
   const [listening, setListening] = useState(false);
+  const [voiceReady, setVoiceReady] = useState(false);
   const [voiceFinishing, setVoiceFinishing] = useState(false);
   const [level, setLevel] = useState(0);
   const [voiceOn, setVoiceOn] = useState(false);
@@ -391,6 +392,7 @@ export default function Workbench() {
     audio.current?.pause();
     window.speechSynthesis?.cancel();
     setListening(true);
+    setVoiceReady(false);
     setVoiceFinishing(false);
     voiceStopRequested.current = false;
     const session = ++voiceSession.current;
@@ -420,9 +422,13 @@ export default function Workbench() {
         setError(message);
         end();
       };
+      const ready = () => {
+        if (session === voiceSession.current) setVoiceReady(true);
+      };
       const handle = data?.providers.streamingVoice
-        ? await streamingRecognition(language, onText, end, fail, setLevel)
+        ? await streamingRecognition(language, onText, end, fail, setLevel, ready)
         : browserRecognition(language, onText, end, fail);
+      if (!data?.providers.streamingVoice) ready();
       if (session !== voiceSession.current || ended) handle.stop();
       else {
         voice.current = handle;
@@ -790,7 +796,7 @@ export default function Workbench() {
             : voiceFinishing
               ? "Finishing your command…"
             : listening
-              ? "Listening… speak naturally"
+              ? voiceReady ? "Listening… speak naturally" : "Connecting microphone… wait before speaking"
               : "Tap the mic. Speak naturally."}
         </span>
       </div>

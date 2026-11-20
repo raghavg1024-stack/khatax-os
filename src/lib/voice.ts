@@ -64,11 +64,21 @@ export async function streamingRecognition(
   onEnd: () => void,
   onError: (message: string) => void,
   onLevel: (level: number) => void,
+  onReady?: () => void,
 ): Promise<VoiceHandle> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-  });
-  let context: AudioContext | undefined;
+  // Unlock audio in the mic button's user gesture, before permission/network awaits.
+  // Mobile browsers can leave a context created in a WebSocket callback suspended.
+  const context = new AudioContext();
+  const resumed = context.resume().then(() => true, () => false);
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    });
+  } catch (error) {
+    void context.close().catch(() => {});
+    throw error;
+  }
   let node: AudioWorkletNode | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
   let ended = false;
@@ -79,6 +89,7 @@ export async function streamingRecognition(
     );
   } catch {
     stream.getTracks().forEach((track) => track.stop());
+    void context.close().catch(() => {});
     throw new Error("Could not start the voice connection. Retry or type your command.");
   }
   let timer: number | undefined;
@@ -91,7 +102,7 @@ export async function streamingRecognition(
     stream.getTracks().forEach((t) => t.stop());
     node?.disconnect();
     source?.disconnect();
-    if (context && context.state !== "closed") void context.close().catch(() => {});
+    if (context.state !== "closed") void context.close().catch(() => {});
     if (socket.readyState < 2) socket.close();
     onEnd();
   };
@@ -105,8 +116,6 @@ export async function streamingRecognition(
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === "connected") {
-        clearTimeout(timer);
-        context = new AudioContext();
         const blob = URL.createObjectURL(
           new Blob([worklet], { type: "application/javascript" }),
         );
@@ -126,7 +135,10 @@ export async function streamingRecognition(
         };
         source.connect(node);
         node.connect(context.destination);
-        await context.resume();
+        if (!await resumed || context.state !== "running") throw new Error("Microphone audio could not start");
+        if (ended) return;
+        clearTimeout(timer);
+        onReady?.();
       }
       if (msg.type === "transcript" && msg.text) {
         onText(msg.text, true);
