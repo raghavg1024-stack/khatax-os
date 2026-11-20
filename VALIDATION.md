@@ -2,6 +2,8 @@
 
 ## 20 November release review
 
+Speech-to-text recovery now retains up to 28 seconds of the current PCM capture in browser memory. When streaming returns no text, the app sends a bounded WAV to the real Sarvam Saaras v4 REST model, keeping automatic detection (`unknown` for REST). Audio is not stored in the application database. The endpoint validates origin, size, and WAV format and masks provider errors. A forced-stream-stall Chrome test passed through actual capture, 625 PCM frames, real file transcription, and the correct 350-rupee payment review without changing ledger balances. All 13 automated tests and the production build pass; cancellation and late-response guards are covered.
+
 Automatic detection is the default Sarvam path. No browser fallback silently replaces `auto` with Hindi: browser compatibility requires an explicit language, and choosing Auto routes back to Sarvam. Chrome's real capture test passed with `language=auto`, 361 PCM frames, the expected 350-rupee payment preview, and unchanged ledger balances. All 20 compiled browser workflows, 12 automated tests, TypeScript, and the production build pass for this change.
 
 Additional speech recovery: capture now reports missing frames, silent input, provider silence, missing final results, and unexpected connection closure rather than failing silently. The assistant offers an explicitly selected browser-speech compatibility mode with language selection; it does not claim browser recognition came from Sarvam. All 12 automated tests and the production build pass. Real Chrome capture to Sarvam again returned the correct 350-rupee payment preview (365 PCM frames) without posting entries. Physical laptop microphone behavior still requires user acceptance.

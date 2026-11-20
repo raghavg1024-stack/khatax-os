@@ -432,7 +432,10 @@ export default function Workbench() {
         if (session === voiceSession.current) setVoiceReady(true);
       };
       const handle = useServerSpeech
-        ? await streamingRecognition(language, onText, end, fail, setLevel, ready)
+        ? await streamingRecognition(language, onText, end, fail, setLevel, ready, {
+          fileRecovery: !!data?.providers.sarvamVoice,
+          onRecover: () => { if (session === voiceSession.current) setVoiceFinishing(true); },
+        })
         : browserRecognition(language, onText, end, fail);
       if (!useServerSpeech) ready();
       if (session !== voiceSession.current || ended) handle.stop();
@@ -800,7 +803,7 @@ export default function Workbench() {
           {busy
             ? "Understanding your command…"
             : voiceFinishing
-              ? "Finishing your command…"
+              ? "Transcribing your recording…"
             : listening
               ? voiceReady ? "Listening… speak naturally" : "Connecting microphone… wait before speaking"
               : "Tap the mic. Speak naturally."}

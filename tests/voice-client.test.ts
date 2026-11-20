@@ -64,7 +64,7 @@ test("microphone tracks close on socket startup failure and cancellation cannot 
 });
 
 test("speech stalls report missing frames, muted input, provider silence, and missing final results", async () => {
-  const names = ["navigator", "location", "window", "WebSocket", "AudioContext", "AudioWorkletNode", "clearTimeout"];
+  const names = ["navigator", "location", "window", "WebSocket", "AudioContext", "AudioWorkletNode", "clearTimeout", "fetch"];
   const before = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const set = (name: string, value: unknown) => Object.defineProperty(globalThis,name,{configurable:true,writable:true,value});
   const timers = new Map<number,{fn:()=>void;ms:number}>();
@@ -103,8 +103,10 @@ test("speech stalls report missing frames, muted input, provider silence, and mi
       createMediaStreamSource(){return {connect(){},disconnect(){}};}
     });
     set("AudioWorkletNode",Node);
-    const start = async () => {
-      const handle=await streamingRecognition("en-IN",()=>{},()=>{},message=>errors.push(message),()=>{});
+    const finals: string[] = [];
+    let recoveries = 0;
+    const start = async (fileRecovery = false, language = "en-IN") => {
+      const handle=await streamingRecognition(language,(text,final)=>{if(final) finals.push(text);},()=>{},message=>errors.push(message),()=>{},undefined,{fileRecovery,onRecover:()=>recoveries++});
       await socket!.onmessage!({data:'{"type":"connected"}'});
       return handle;
     };
@@ -114,11 +116,59 @@ test("speech stalls report missing frames, muted input, provider silence, and mi
     await start(); node!.port.onmessage!({data:{pcm:new ArrayBuffer(1024),level:0.1}});
     fire(20000); assert.match(errors.pop()!,/no words were returned/);
     const handle=await start(); handle.stop(); fire(12000); assert.match(errors.pop()!,/not sending microphone audio/);
-    await start(); socket!.close(); assert.match(errors.pop()!,/closed without recognizing/);
+    await start(); socket!.close(); assert.match(errors.pop()!,/not sending microphone audio/);
     await start(); await socket!.onmessage!({data:'{"type":"interim","text":"Ravi"}'});
     fire(20000); assert.equal(errors.length,0);
     fire(60000); assert.match(errors.pop()!,/did not finish/); assert.equal(timers.size,0);
     assert.equal(errors.length,0,"Cleanup must not produce duplicate socket errors");
+
+    let fetches = 0;
+    const pcm = new ArrayBuffer(1024);
+    new Uint8Array(pcm).fill(7);
+    set("fetch",async (url:string,options:RequestInit)=> {
+      fetches++;
+      assert.equal(url,"/api/transcribe?language=auto");
+      assert.equal(options.method,"POST");
+      assert.equal((options.headers as Record<string,string>)["Content-Type"],"audio/wav");
+      const wav=options.body as Uint8Array;
+      const view=new DataView(wav.buffer,wav.byteOffset,wav.byteLength);
+      assert.equal(Buffer.from(wav.subarray(0,4)).toString(),"RIFF");
+      assert.equal(Buffer.from(wav.subarray(8,12)).toString(),"WAVE");
+      assert.equal(view.getUint32(4,true),wav.byteLength-8);
+      assert.equal(view.getUint16(22,true),1);
+      assert.equal(view.getUint32(24,true),16000);
+      assert.equal(view.getUint16(34,true),16);
+      assert.equal(view.getUint32(40,true),1024);
+      assert.deepEqual(wav.subarray(44),new Uint8Array(pcm));
+      return Response.json({text:"Ravi paid 350 rupees"});
+    });
+    await start(true,"auto");
+    node!.port.onmessage!({data:{pcm,level:0.1}});
+    fire(20000);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(fetches,1);
+    assert.equal(recoveries,1);
+    assert.deepEqual(finals,["Ravi paid 350 rupees"]);
+    assert.equal(timers.size,0);
+    assert.equal(errors.length,0);
+
+    let pendingResponse: (response:Response)=>void = ()=>{};
+    let recoverySignal: AbortSignal | null | undefined;
+    set("fetch",(_url:string,options:RequestInit)=> {
+      recoverySignal=options.signal;
+      return new Promise<Response>(resolve=>{pendingResponse=resolve;});
+    });
+    const cancelled=await start(true);
+    node!.port.onmessage!({data:{pcm,level:0.1}});
+    fire(20000);
+    assert.equal(recoverySignal?.aborted,false);
+    cancelled.stop();
+    assert.equal(recoverySignal?.aborted,true,"Cancelling recovery must abort the request");
+    pendingResponse(Response.json({text:"Late unwanted result"}));
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(finals,["Ravi paid 350 rupees"],"Late HTTP recovery must not submit a cancelled command");
+    assert.equal(errors.length,0);
+    assert.equal(timers.size,0);
     let recognition: {onend:()=>void};
     set("window",{SpeechRecognition:class {constructor(){recognition=this as unknown as typeof recognition;}start(){}stop(){} }});
     browserRecognition("en-IN",()=>{},()=>{},message=>errors.push(message));

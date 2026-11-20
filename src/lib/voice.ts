@@ -73,6 +73,7 @@ export async function streamingRecognition(
   onError: (message: string) => void,
   onLevel: (level: number) => void,
   onReady?: () => void,
+  recovery: { fileRecovery?: boolean; onRecover?: () => void } = {},
 ): Promise<VoiceHandle> {
   // Unlock audio in the mic button's user gesture, before permission/network awaits.
   // Mobile browsers can leave a context created in a WebSocket callback suspended.
@@ -91,6 +92,9 @@ export async function streamingRecognition(
   let source: MediaStreamAudioSourceNode | undefined;
   let ended = false;
   let stopping = false, hasFinal = false, hasText = false, frames = 0, peak = 0;
+  let recovering = false;
+  let recoveryAbort: AbortController | undefined;
+  const captured: ArrayBuffer[] = [];
   let socket: WebSocket;
   try {
     socket = new WebSocket(
@@ -110,6 +114,7 @@ export async function streamingRecognition(
     clearTimeout(timer);
     clearTimeout(stopTimer);
     clearTimeout(sessionTimer);
+    recoveryAbort?.abort();
     stream.getTracks().forEach((t) => t.stop());
     node?.disconnect();
     source?.disconnect();
@@ -127,6 +132,49 @@ export async function streamingRecognition(
     : peak < 0.003
       ? "The microphone is connected but no audible voice was detected. Unmute it and select the correct microphone in browser settings."
       : "Microphone audio is reaching recognition, but no words were returned. Select your spoken language and retry, or switch speech mode.";
+  const recover = async () => {
+    if (ended || recovering) return;
+    if (!recovery.fileRecovery || !frames || frames > 875 || peak < 0.003) {
+      fail(noSpeechMessage());
+      return;
+    }
+    recovering = true;
+    stopping = true;
+    clearTimeout(timer);
+    clearTimeout(stopTimer);
+    clearTimeout(sessionTimer);
+    stream.getTracks().forEach(t => t.stop());
+    node?.disconnect();
+    source?.disconnect();
+    if (socket.readyState < 2) socket.close();
+    recovery.onRecover?.();
+    recoveryAbort = new AbortController();
+    stopTimer = window.setTimeout(() => recoveryAbort?.abort(), 30000);
+    try {
+      const bytes = captured.reduce((total, frame) => total + frame.byteLength, 0);
+      const wav = new Uint8Array(44 + bytes);
+      const view = new DataView(wav.buffer);
+      const label = (offset: number, value: string) => [...value].forEach((c,i) => view.setUint8(offset+i,c.charCodeAt(0)));
+      label(0,"RIFF"); view.setUint32(4,36+bytes,true); label(8,"WAVE"); label(12,"fmt ");
+      view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true);
+      view.setUint32(24,16000,true); view.setUint32(28,32000,true); view.setUint16(32,2,true); view.setUint16(34,16,true);
+      label(36,"data"); view.setUint32(40,bytes,true);
+      let offset = 44;
+      for (const frame of captured) { wav.set(new Uint8Array(frame),offset); offset += frame.byteLength; }
+      const response = await fetch(`/api/transcribe?language=${encodeURIComponent(language)}`, {
+        method:"POST", headers:{"Content-Type":"audio/wav"}, body:wav, signal:recoveryAbort.signal,
+      });
+      const result = await response.json();
+      if (ended) return;
+      if (!response.ok || typeof result.text !== "string" || !result.text.trim())
+        throw new Error(result.error || "Speech-to-text returned no words. Check the microphone and retry.");
+      hasFinal = true;
+      onText(result.text.trim(),true);
+      cleanup();
+    } catch (error) {
+      if (!ended) fail(error instanceof Error && error.name !== "AbortError" ? error.message : "Speech-to-text timed out. Please retry a shorter recording.");
+    }
+  };
   timer = window.setTimeout(() => {
     onError("Voice connection timed out. Try again or type your command.");
     cleanup();
@@ -153,6 +201,7 @@ export async function streamingRecognition(
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(e.data.pcm);
             frames++;
+            if (recovery.fileRecovery && captured.length < 875) captured.push(e.data.pcm.slice(0));
             peak = Math.max(peak, Number(e.data.level) || 0);
             onLevel(e.data.level);
           }
@@ -163,7 +212,7 @@ export async function streamingRecognition(
         if (ended) return;
         clearTimeout(timer);
         timer = window.setTimeout(() => {
-          if (!hasText) fail(noSpeechMessage());
+          if (!hasText) void recover();
         }, 20000);
         sessionTimer = window.setTimeout(() => fail("Speech recognition did not finish. Record a shorter command, then press Stop listening."), 60000);
         onReady?.();
@@ -193,13 +242,15 @@ export async function streamingRecognition(
     cleanup();
   };
   socket.onclose = () => {
+    if (recovering) return;
     if (!ended && !hasFinal)
-      onError("Speech connection closed without recognizing words. Retry or switch speech mode.");
+      return void recover();
     clearTimeout(timer);
     cleanup();
   };
   return {
     stop: () => {
+      if (recovering) { cleanup(); return; }
       if (ended || stopping) return;
       // A cancelled permission/connection startup must not later open the mic.
       if (!node || socket.readyState !== WebSocket.OPEN) {
@@ -214,7 +265,7 @@ export async function streamingRecognition(
       stream.getTracks().forEach((t) => t.stop());
       node?.disconnect();
       source?.disconnect();
-      stopTimer = window.setTimeout(() => fail(noSpeechMessage()), 12000);
+      stopTimer = window.setTimeout(() => void recover(), recovery.fileRecovery ? 3000 : 12000);
     },
   };
 }
