@@ -196,7 +196,7 @@ export default function Workbench() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [text, setText] = useState("");
-  const [language, setLanguage] = useState("hi-IN");
+  const [language, setLanguage] = useState("auto");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [ack, setAck] = useState(false);
   const [overrides, setOverrides] = useState<
@@ -276,7 +276,7 @@ export default function Workbench() {
   useEffect(() => {
     if (!data || voiceLanguageInitialized.current) return;
     voiceLanguageInitialized.current = true;
-    if (data.providers.sarvamVoice) setLanguage("auto");
+    setLanguage(data.providers.sarvamVoice ? "auto" : "hi-IN");
   }, [data]);
   function updateUrl(changes: Record<string, string>) {
     const p = new URLSearchParams(location.search);
@@ -384,6 +384,10 @@ export default function Workbench() {
     }
     const selectedLanguage = LANGUAGES.find((item) => item.code === language);
     const useServerSpeech = data?.providers.streamingVoice && recognitionMode !== "browser";
+    if (language === "auto" && !useServerSpeech) {
+      setError("Automatic language detection requires Sarvam speech. Choose Sarvam speech or explicitly select a language for browser speech.");
+      return;
+    }
     if (useServerSpeech && !data.providers.sarvamVoice && !selectedLanguage?.gnani) {
       setError(`${selectedLanguage?.name || "This language"} voice needs the Sarvam connection. You can still type your command, or choose a Gnani voice language.`);
       return;
@@ -429,7 +433,7 @@ export default function Workbench() {
       };
       const handle = useServerSpeech
         ? await streamingRecognition(language, onText, end, fail, setLevel, ready)
-        : browserRecognition(language === "auto" ? "hi-IN" : language, onText, end, fail);
+        : browserRecognition(language, onText, end, fail);
       if (!useServerSpeech) ready();
       if (session !== voiceSession.current || ended) handle.stop();
       else {
@@ -807,10 +811,13 @@ export default function Workbench() {
         <select
           aria-label="Voice language"
           value={language}
-          onChange={(e) => setLanguage(e.target.value)}
+          onChange={(e) => {
+            setLanguage(e.target.value);
+            if (e.target.value === "auto") setRecognitionMode("server");
+          }}
           disabled={listening}
         >
-                        {data.providers.sarvamVoice && recognitionMode !== "browser" && <option value="auto">Auto-detect language</option>}
+                        {data.providers.sarvamVoice && <option value="auto">Auto-detect language (recommended)</option>}
                         {LANGUAGES.map((l) => (
             <option key={l.code} value={l.code}>
               {l.name}{data.providers.streamingVoice && !data.providers.sarvamVoice && !l.gnani ? " (voice setup needed)" : ""}
@@ -823,11 +830,11 @@ export default function Workbench() {
         <Mic size={15} />
         <select aria-label="Speech recognition" value={recognitionMode} disabled={listening || busy} onChange={(e) => {
           setRecognitionMode(e.target.value);
-          if (e.target.value === "browser" && language === "auto") setLanguage("hi-IN");
+          if (e.target.value === "server" && data.providers.sarvamVoice) setLanguage("auto");
           setError("");
         }}>
           <option value="server">{data.providers.sarvamVoice ? "Sarvam" : "Gnani"} speech</option>
-          <option value="browser">Browser speech · compatibility mode</option>
+          <option value="browser" disabled={language === "auto"}>Browser speech · manual language only</option>
         </select>
         <ChevronDown size={13} />
       </label>}

@@ -36,15 +36,20 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   let frames = 0;
+  let automaticLanguage = false;
   const session = await page.createCDPSession();
   await session.send("Network.enable");
+  session.on("Network.webSocketCreated", ({url}) => {
+    if (url.includes("/api/voice")) automaticLanguage = new URL(url).searchParams.get("language") === "auto";
+  });
   session.on("Network.webSocketFrameSent", ({response}) => { if (response.opcode === 2) frames++; });
   await page.goto(base, {waitUntil: "networkidle0"});
-  await page.select('select[aria-label="Voice language"]', "en-IN");
+  await page.waitForFunction(() => document.querySelector('select[aria-label="Voice language"]')?.value === "auto");
   await page.click('button[aria-label="Start voice command"]');
   await page.waitForFunction(() => document.querySelector(".mic-instruction")?.textContent.includes("Listening"), {timeout: 20000});
   await page.waitForSelector(".preview-area", {timeout: 60000});
   assert.ok(frames > 30, "Actual browser capture must send PCM frames");
+  assert.equal(automaticLanguage, true, "Default microphone must request automatic language detection");
   const text = await page.$eval(".preview-area", (el) => el.textContent);
   assert.match(text, /350/);
   assert.match(text, /payment/i);
@@ -53,7 +58,7 @@ try {
   const after = await state();
   assert.equal(after.entries.length, before.entries.length);
   assert.deepEqual(after.customers.map(c=>[c.id,c.balancePaise]), before.customers.map(c=>[c.id,c.balancePaise]));
-  const report = {passed:true, actualBrowserMicrophone:true, pcmFrames:frames, realSpeechProvider:true, paymentPaise:35000, ledgerUnchanged:true};
+  const report = {passed:true, actualBrowserMicrophone:true, automaticLanguage, pcmFrames:frames, realSpeechProvider:true, paymentPaise:35000, ledgerUnchanged:true};
   writeFileSync("test-results/microphone-report.json", JSON.stringify(report,null,2));
   console.log(JSON.stringify(report));
 } finally { await browser.close(); }

@@ -343,6 +343,8 @@ try {
   assert.equal(await page.evaluate(() => window.qaAudioPlays), 0, "Disabling replies must suppress pending audio");
   await clickText("Ask something else");
   await page.waitForSelector(".preview-area", {hidden: true});
+  assert.equal(await page.$eval('select[aria-label="Voice language"]', el => el.value), "auto");
+  await page.select('select[aria-label="Voice language"]', "hi-IN");
   await page.select('select[aria-label="Speech recognition"]', "browser");
   assert.equal(await page.$eval('select[aria-label="Voice language"]', el => el.value), "hi-IN");
   await page.evaluate((voiceCommand) => {
@@ -361,6 +363,8 @@ try {
   assert.ok((await page.$eval(".preview-action b", el => el.textContent)).includes("30"));
   await clickText("Discard");
   await page.waitForSelector(".preview-area", {hidden:true});
+  await page.select('select[aria-label="Voice language"]', "auto");
+  assert.equal(await page.$eval('select[aria-label="Speech recognition"]', el => el.value), "server");
   assert.equal(errors.length, 0, errors.join("\n"));
   const report = {
     passed: true,
