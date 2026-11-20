@@ -27,7 +27,9 @@ const clickText = async (text, selector = "button") => {
   );
   const element = handle.asElement();
   assert.ok(element, `Missing visible ${selector}: ${text}`);
-  await element.click();
+  await page.waitForFunction((el) => !el.disabled, {}, element);
+  await element.focus();
+  await page.keyboard.press("Enter");
   await handle.dispose();
 };
 const state = async () => {
@@ -322,6 +324,8 @@ try {
       if (input === "/api/state") {
         const snapshot = await response.json();
         snapshot.providers.gnaniVoice = true;
+        snapshot.providers.streamingVoice = true;
+        snapshot.providers.sarvamVoice = true;
         return new Response(JSON.stringify(snapshot), {status: response.status});
       }
       return response;
@@ -339,6 +343,24 @@ try {
   assert.equal(await page.evaluate(() => window.qaAudioPlays), 0, "Disabling replies must suppress pending audio");
   await clickText("Ask something else");
   await page.waitForSelector(".preview-area", {hidden: true});
+  await page.select('select[aria-label="Speech recognition"]', "browser");
+  assert.equal(await page.$eval('select[aria-label="Voice language"]', el => el.value), "hi-IN");
+  await page.evaluate((voiceCommand) => {
+    window.webkitSpeechRecognition = class {
+      start() { setTimeout(() => {
+        this.onresult?.({resultIndex:0,results:[{isFinal:true,0:{transcript:voiceCommand},length:1}]});
+        this.onend?.();
+      }, 50); }
+      stop() {}
+      abort() {}
+    };
+    window.SpeechRecognition = window.webkitSpeechRecognition;
+  }, `${nickname} 30 credit`);
+  await page.click('button[aria-label="Start voice command"]');
+  await page.waitForSelector(".preview-area");
+  assert.ok((await page.$eval(".preview-action b", el => el.textContent)).includes("30"));
+  await clickText("Discard");
+  await page.waitForSelector(".preview-area", {hidden:true});
   assert.equal(errors.length, 0, errors.join("\n"));
   const report = {
     passed: true,
@@ -359,6 +381,7 @@ try {
       "Cross-origin rejection",
       "Voice stop preserves final transcript without posting",
       "Disabling voice replies suppresses delayed audio",
+      "Explicit browser speech compatibility mode bypasses streaming setup",
       "Mobile overflow",
       "Mobile financial review and 320/768/1920px responsive layouts",
       "No browser exceptions",

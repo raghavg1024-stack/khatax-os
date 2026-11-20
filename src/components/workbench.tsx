@@ -204,6 +204,7 @@ export default function Workbench() {
   >({});
   const [listening, setListening] = useState(false);
   const [voiceReady, setVoiceReady] = useState(false);
+  const [recognitionMode, setRecognitionMode] = useState("server");
   const [voiceFinishing, setVoiceFinishing] = useState(false);
   const [level, setLevel] = useState(0);
   const [voiceOn, setVoiceOn] = useState(false);
@@ -382,7 +383,8 @@ export default function Workbench() {
       return;
     }
     const selectedLanguage = LANGUAGES.find((item) => item.code === language);
-    if (data?.providers.streamingVoice && !data.providers.sarvamVoice && !selectedLanguage?.gnani) {
+    const useServerSpeech = data?.providers.streamingVoice && recognitionMode !== "browser";
+    if (useServerSpeech && !data.providers.sarvamVoice && !selectedLanguage?.gnani) {
       setError(`${selectedLanguage?.name || "This language"} voice needs the Sarvam connection. You can still type your command, or choose a Gnani voice language.`);
       return;
     }
@@ -425,10 +427,10 @@ export default function Workbench() {
       const ready = () => {
         if (session === voiceSession.current) setVoiceReady(true);
       };
-      const handle = data?.providers.streamingVoice
+      const handle = useServerSpeech
         ? await streamingRecognition(language, onText, end, fail, setLevel, ready)
-        : browserRecognition(language, onText, end, fail);
-      if (!data?.providers.streamingVoice) ready();
+        : browserRecognition(language === "auto" ? "hi-IN" : language, onText, end, fail);
+      if (!useServerSpeech) ready();
       if (session !== voiceSession.current || ended) handle.stop();
       else {
         voice.current = handle;
@@ -808,7 +810,7 @@ export default function Workbench() {
           onChange={(e) => setLanguage(e.target.value)}
           disabled={listening}
         >
-                        {data.providers.sarvamVoice && <option value="auto">Auto-detect language</option>}
+                        {data.providers.sarvamVoice && recognitionMode !== "browser" && <option value="auto">Auto-detect language</option>}
                         {LANGUAGES.map((l) => (
             <option key={l.code} value={l.code}>
               {l.name}{data.providers.streamingVoice && !data.providers.sarvamVoice && !l.gnani ? " (voice setup needed)" : ""}
@@ -817,8 +819,20 @@ export default function Workbench() {
         </select>
         <ChevronDown size={13} />
       </label>
+      {data.providers.streamingVoice && <label className="language-select">
+        <Mic size={15} />
+        <select aria-label="Speech recognition" value={recognitionMode} disabled={listening || busy} onChange={(e) => {
+          setRecognitionMode(e.target.value);
+          if (e.target.value === "browser" && language === "auto") setLanguage("hi-IN");
+          setError("");
+        }}>
+          <option value="server">{data.providers.sarvamVoice ? "Sarvam" : "Gnani"} speech</option>
+          <option value="browser">Browser speech · compatibility mode</option>
+        </select>
+        <ChevronDown size={13} />
+      </label>}
       <div className={`voice-coverage ${data.providers.streamingVoice && !languageVoiceAvailable ? "needs-setup" : ""}`} aria-live="polite">
-        <span>{!data.providers.streamingVoice ? "Browser demo; speech support varies" : languageVoiceAvailable ? `${activeLanguage?.native} voice via ${data.providers.sarvamVoice ? "Sarvam" : "Gnani"}` : "Voice setup needed for this language. Type below to continue."}</span>
+        <span>{recognitionMode === "browser" || !data.providers.streamingVoice ? "Browser speech; choose your language. Support varies by browser." : languageVoiceAvailable ? `${activeLanguage?.native} voice via ${data.providers.sarvamVoice ? "Sarvam" : "Gnani"}` : "Voice setup needed for this language. Type below to continue."}</span>
                       <button onClick={() => setSettings(true)}>{data.providers.sarvamVoice ? "22 Indian languages + English" : data.providers.streamingVoice ? `${availableVoiceLanguages} voice languages, view coverage` : "Voice provider coverage"} <ChevronRight size={11} /></button>
       </div>
       <details className="examples">

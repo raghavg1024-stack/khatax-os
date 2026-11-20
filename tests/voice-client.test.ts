@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { streamingRecognition } from "../src/lib/voice";
+import { browserRecognition, streamingRecognition } from "../src/lib/voice";
 
 test("microphone tracks close on socket startup failure and cancellation cannot restart capture", async () => {
   const names = ["navigator", "location", "window", "WebSocket", "AudioContext"];
@@ -59,6 +59,74 @@ test("microphone tracks close on socket startup failure and cancellation cannot 
     for (const [name, descriptor] of before) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
       else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test("speech stalls report missing frames, muted input, provider silence, and missing final results", async () => {
+  const names = ["navigator", "location", "window", "WebSocket", "AudioContext", "AudioWorkletNode", "clearTimeout"];
+  const before = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const set = (name: string, value: unknown) => Object.defineProperty(globalThis,name,{configurable:true,writable:true,value});
+  const timers = new Map<number,{fn:()=>void;ms:number}>();
+  let next = 0, socket: Socket, node: Node;
+  const errors: string[] = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 1;
+    onmessage: ((event:{data:string})=>Promise<void>) | null = null;
+    onclose: (()=>void) | null = null;
+    constructor() { socket = this; }
+    close() { this.readyState = 3; this.onclose?.(); }
+    send() {}
+  }
+  class Node {
+    port: {onmessage:((event:{data:{pcm:ArrayBuffer;level:number}})=>void)|null} = {onmessage:null};
+    constructor() { node = this; }
+    connect() {}
+    disconnect() {}
+  }
+  const fire = (ms:number) => {
+    const row = [...timers].find(([,timer])=>timer.ms===ms);
+    assert.ok(row,`Expected ${ms}ms timeout`);
+    timers.delete(row[0]); row[1].fn();
+  };
+  try {
+    set("navigator", {mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}});
+    set("location",{protocol:"https:",host:"shop.example"});
+    set("window",{setTimeout:(fn:()=>void,ms:number)=>{timers.set(++next,{fn,ms});return next;}});
+    set("clearTimeout",(id:number)=>timers.delete(id));
+    set("WebSocket",Socket);
+    set("AudioContext",class {
+      state="running"; destination={};
+      audioWorklet={async addModule(){}};
+      async resume(){} async close(){this.state="closed";}
+      createMediaStreamSource(){return {connect(){},disconnect(){}};}
+    });
+    set("AudioWorkletNode",Node);
+    const start = async () => {
+      const handle=await streamingRecognition("en-IN",()=>{},()=>{},message=>errors.push(message),()=>{});
+      await socket!.onmessage!({data:'{"type":"connected"}'});
+      return handle;
+    };
+    await start(); fire(20000); assert.match(errors.pop()!,/not sending microphone audio/); assert.equal(timers.size,0);
+    await start(); node!.port.onmessage!({data:{pcm:new ArrayBuffer(1024),level:0}});
+    fire(20000); assert.match(errors.pop()!,/no audible voice/);
+    await start(); node!.port.onmessage!({data:{pcm:new ArrayBuffer(1024),level:0.1}});
+    fire(20000); assert.match(errors.pop()!,/no words were returned/);
+    const handle=await start(); handle.stop(); fire(12000); assert.match(errors.pop()!,/not sending microphone audio/);
+    await start(); socket!.close(); assert.match(errors.pop()!,/closed without recognizing/);
+    await start(); await socket!.onmessage!({data:'{"type":"interim","text":"Ravi"}'});
+    fire(20000); assert.equal(errors.length,0);
+    fire(60000); assert.match(errors.pop()!,/did not finish/); assert.equal(timers.size,0);
+    assert.equal(errors.length,0,"Cleanup must not produce duplicate socket errors");
+    let recognition: {onend:()=>void};
+    set("window",{SpeechRecognition:class {constructor(){recognition=this as unknown as typeof recognition;}start(){}stop(){} }});
+    browserRecognition("en-IN",()=>{},()=>{},message=>errors.push(message));
+    recognition!.onend(); assert.match(errors.pop()!,/No speech was recognized/);
+  } finally {
+    for(const [name,descriptor] of before) {
+      if(descriptor) Object.defineProperty(globalThis,name,descriptor);
+      else Reflect.deleteProperty(globalThis,name);
     }
   }
 });

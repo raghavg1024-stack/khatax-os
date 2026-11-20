@@ -39,6 +39,7 @@ export function browserRecognition(
   recognition.lang = language;
   recognition.interimResults = true;
   recognition.continuous = false;
+  let hasFinal = false, failed = false;
   recognition.onresult = (e) => {
     let text = "";
     let final = false;
@@ -46,15 +47,22 @@ export function browserRecognition(
       text += e.results[i][0].transcript;
       final ||= e.results[i].isFinal;
     }
+    if (final && text.trim()) hasFinal = true;
     onText(text, final);
   };
-  recognition.onerror = (e) =>
+  recognition.onerror = (e) => {
+    failed = true;
     onError(
       e.error === "not-allowed"
         ? "Microphone access was denied. Allow it in browser settings or type your command."
         : `Browser speech could not start (${e.error}). You can type instead.`,
     );
-  recognition.onend = onEnd;
+  };
+  recognition.onend = () => {
+    if (!hasFinal && !failed)
+      onError("No speech was recognized. Check your selected microphone and language, then retry or type your command.");
+    onEnd();
+  };
   recognition.start();
   return { stop: () => recognition.stop() };
 }
@@ -82,6 +90,7 @@ export async function streamingRecognition(
   let node: AudioWorkletNode | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
   let ended = false;
+  let stopping = false, hasFinal = false, hasText = false, frames = 0, peak = 0;
   let socket: WebSocket;
   try {
     socket = new WebSocket(
@@ -94,11 +103,13 @@ export async function streamingRecognition(
   }
   let timer: number | undefined;
   let stopTimer: number | undefined;
+  let sessionTimer: number | undefined;
   const cleanup = () => {
     if (ended) return;
     ended = true;
     clearTimeout(timer);
     clearTimeout(stopTimer);
+    clearTimeout(sessionTimer);
     stream.getTracks().forEach((t) => t.stop());
     node?.disconnect();
     source?.disconnect();
@@ -106,6 +117,16 @@ export async function streamingRecognition(
     if (socket.readyState < 2) socket.close();
     onEnd();
   };
+  const fail = (message: string) => {
+    if (ended) return;
+    onError(message);
+    cleanup();
+  };
+  const noSpeechMessage = () => frames === 0
+    ? "Your browser is not sending microphone audio. Check microphone permission and the selected input device, or try Chrome or Edge."
+    : peak < 0.003
+      ? "The microphone is connected but no audible voice was detected. Unmute it and select the correct microphone in browser settings."
+      : "Microphone audio is reaching recognition, but no words were returned. Select your spoken language and retry, or switch speech mode.";
   timer = window.setTimeout(() => {
     onError("Voice connection timed out. Try again or type your command.");
     cleanup();
@@ -128,8 +149,11 @@ export async function streamingRecognition(
         source = context.createMediaStreamSource(stream);
         node = new AudioWorkletNode(context, "pcm-capture");
         node.port.onmessage = (e) => {
+          if (ended || stopping) return;
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(e.data.pcm);
+            frames++;
+            peak = Math.max(peak, Number(e.data.level) || 0);
             onLevel(e.data.level);
           }
         };
@@ -138,14 +162,21 @@ export async function streamingRecognition(
         if (!await resumed || context.state !== "running") throw new Error("Microphone audio could not start");
         if (ended) return;
         clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          if (!hasText) fail(noSpeechMessage());
+        }, 20000);
+        sessionTimer = window.setTimeout(() => fail("Speech recognition did not finish. Record a shorter command, then press Stop listening."), 60000);
         onReady?.();
       }
       if (msg.type === "transcript" && msg.text) {
+        hasFinal = true;
         onText(msg.text, true);
         cleanup();
       }
-      if (msg.type === "interim" && typeof msg.text === "string")
+      if (msg.type === "interim" && typeof msg.text === "string") {
+        if (msg.text.trim()) hasText = true;
         onText(msg.text, false);
+      }
       if (msg.type === "error") {
         onError(msg.message || "Speech provider error.");
         cleanup();
@@ -162,12 +193,14 @@ export async function streamingRecognition(
     cleanup();
   };
   socket.onclose = () => {
+    if (!ended && !hasFinal)
+      onError("Speech connection closed without recognizing words. Retry or switch speech mode.");
     clearTimeout(timer);
     cleanup();
   };
   return {
     stop: () => {
-      if (ended) return;
+      if (ended || stopping) return;
       // A cancelled permission/connection startup must not later open the mic.
       if (!node || socket.readyState !== WebSocket.OPEN) {
         cleanup();
@@ -175,10 +208,13 @@ export async function streamingRecognition(
       }
       if (socket.readyState === WebSocket.OPEN)
         socket.send(JSON.stringify({ type: "commit" }));
+      stopping = true;
+      clearTimeout(timer);
+      clearTimeout(sessionTimer);
       stream.getTracks().forEach((t) => t.stop());
       node?.disconnect();
       source?.disconnect();
-      stopTimer = window.setTimeout(cleanup, 12000);
+      stopTimer = window.setTimeout(() => fail(noSpeechMessage()), 12000);
     },
   };
 }
