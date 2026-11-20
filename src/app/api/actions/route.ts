@@ -2,13 +2,12 @@ import { z } from "zod";
 import { isSameOriginRequest } from "@/lib/origin";
 import { UserInputError } from "@/lib/errors";
 import { db } from "@/lib/db";
-import { audit, commit, prepare } from "@/lib/ledger";
+import { audit, clarify, commit, prepare } from "@/lib/ledger";
 import { extract } from "@/lib/intent";
 import {
   dateSchema,
   indiaDate,
   money,
-  type ExtractedAction,
   type ResolvedAction,
 } from "@/lib/shared";
 
@@ -125,22 +124,7 @@ export async function POST(req: Request) {
       );
     }
     if (body.op === "clarify") {
-      const command = await db.command.findUniqueOrThrow({
-        where: { id: body.commandId },
-      });
-      if (command.state !== "pending")
-        throw new UserInputError("This command is no longer pending.");
-      const result = await prepare(
-        command.transcript,
-        JSON.parse(command.actions) as ExtractedAction[],
-        command.provider,
-        body.overrides,
-      );
-      await db.command.updateMany({
-        where: { id: body.commandId, state: "pending" },
-        data: { state: "superseded" },
-      });
-      return Response.json(result);
+      return Response.json(await clarify(body.commandId, body.overrides));
     }
     if (body.op === "commit")
       return Response.json(await commit(body.commandId, body.acknowledge));

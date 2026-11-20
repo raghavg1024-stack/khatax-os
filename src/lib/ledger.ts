@@ -133,8 +133,9 @@ export async function prepare(
     string,
     { customerId?: string; amount?: string; date?: string }
   > = {},
+  client: Prisma.TransactionClient = db,
 ): Promise<Preview> {
-  const customers = await db.customer.findMany();
+  const customers = await client.customer.findMany();
   const actions: ResolvedAction[] = [];
   const warnings: string[] = [];
   const answers: string[] = [];
@@ -246,8 +247,9 @@ export async function prepare(
       ["undo", "correct"].includes(action.kind) &&
       (!action.customerName || customer)
     ) {
-      const target = await db.entry.findFirst({
+      const target = await client.entry.findFirst({
         where: {
+          ...(prior.targetId ? { id: prior.targetId } : {}),
           reversesId: null,
           reversedBy: null,
           ...(customer ? { customerId: customer.id } : {}),
@@ -262,7 +264,7 @@ export async function prepare(
         action.targetId = target.id;
         action.customerId = target.customerId;
         action.customerName = target.customer.name;
-        if (action.kind === "correct" && !original.date)
+        if (action.kind === "correct" && !action.date)
           action.occurredOn = target.occurredOn;
         chosenTargets.add(target.id);
         warnings.push(
@@ -275,7 +277,7 @@ export async function prepare(
       customer &&
       action.amountPaise
     ) {
-      const duplicate = await db.entry.findFirst({
+      const duplicate = await client.entry.findFirst({
         where: {
           customerId: customer.id,
           amountPaise: action.amountPaise,
@@ -300,7 +302,7 @@ export async function prepare(
           `Possible duplicate: ${money(action.amountPaise)} ${action.kind} for ${customer.name}. Confirm that this is a separate transaction.`,
         );
       if (action.kind === "payment") {
-        const entries = await db.entry.findMany({
+        const entries = await client.entry.findMany({
           where: { customerId: customer.id },
         });
         const balance =
@@ -329,7 +331,7 @@ export async function prepare(
           `${customer.name}’s balance will be calculated after these entries are confirmed.`,
         );
       else {
-        const rows = await db.entry.findMany({
+        const rows = await client.entry.findMany({
           where: { customerId: customer.id },
         });
         const balance = rows.reduce((s, e) => s + signed(e), 0);
@@ -348,7 +350,7 @@ export async function prepare(
     else action.question ||= "Please rephrase the uncertain instruction, or use a manual entry.";
     actions.push(action);
   }
-  const row = await db.command.create({
+  const row = await client.command.create({
     data: {
       transcript,
       actions: JSON.stringify(actions),
@@ -365,6 +367,32 @@ export async function prepare(
     blocked: actions.some((a) => a.needsClarification),
     transcript,
   };
+}
+
+export async function clarify(
+  commandId: string,
+  overrides: Parameters<typeof prepare>[3],
+) {
+  return db.$transaction(async (tx) => {
+    const command = await tx.command.findUniqueOrThrow({ where: { id: commandId } });
+    if (command.state !== "pending")
+      throw new UserInputError("This command is no longer pending.");
+    if (Date.now() - command.createdAt.getTime() > 15 * 60 * 1000)
+      throw new UserInputError("This preview expired. Review your command again.");
+    const claim = await tx.command.updateMany({
+      where: { id: commandId, state: "pending" },
+      data: { state: "superseded" },
+    });
+    if (!claim.count)
+      throw new UserInputError("This command was already processed.");
+    return prepare(
+      command.transcript,
+      JSON.parse(command.actions) as ResolvedAction[],
+      command.provider,
+      overrides,
+      tx,
+    );
+  }, { timeout: 10000 });
 }
 
 export async function commit(commandId: string, acknowledge: boolean) {

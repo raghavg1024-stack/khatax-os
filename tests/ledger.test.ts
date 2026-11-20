@@ -22,9 +22,9 @@ const migration = spawnSync(
 );
 assert.equal(migration.status, 0, migration.stderr);
 const { db } = await import("../src/lib/db");
-const { prepare, commit, snapshot, signed } = await import("../src/lib/ledger");
+const { prepare, clarify, commit, snapshot, signed } = await import("../src/lib/ledger");
 const { localExtract, spokenAmount } = await import("../src/lib/intent");
-const { indiaDate, toPaise, dateSchema } = await import("../src/lib/shared");
+const { indiaDate, relativeDate, toPaise, dateSchema } = await import("../src/lib/shared");
 
 test("exact paise, multilingual parsing, and safe ledger lifecycle", async () => {
   try {
@@ -178,6 +178,39 @@ test("exact paise, multilingual parsing, and safe ledger lifecycle", async () =>
       (await snapshot()).customers.find((c) => c.id === ravi.id)!.balancePaise,
       beforeCorrect - signed(correcting) + 12000,
     );
+    const correctionDraft = await prepare(
+      "correct Ravi to 100 or 200",
+      localExtract("correct Ravi to 100 or 200"),
+      "test",
+    );
+    const anchoredTarget = correctionDraft.actions[0].targetId;
+    assert.ok(anchoredTarget);
+    const staleCorrection = await prepare(correctionDraft.transcript, correctionDraft.actions, "test");
+    const newer = await prepare("Ravi 13 credit", localExtract("Ravi 13 credit"), "test");
+    await commit(newer.id, false);
+    const correctedDate = relativeDate(-1);
+    const anchored = await clarify(correctionDraft.id, {
+      "0": { amount: "200", date: correctedDate },
+    });
+    assert.equal(anchored.blocked, false);
+    assert.equal(anchored.actions[0].targetId, anchoredTarget, "Clarification must preserve the transaction reviewed before a newer entry appeared");
+    assert.equal(anchored.actions[0].occurredOn, correctedDate, "An explicit correction date must override the original transaction date");
+    await assert.rejects(() => commit(correctionDraft.id, true), /no longer available/);
+    await commit(anchored.id, true);
+    const replacement = await db.entry.findFirstOrThrow({ where: { batchId: anchored.id, reversesId: null } });
+    assert.equal(replacement.occurredOn, correctedDate);
+    const staleClarified = await clarify(staleCorrection.id, { "0": { amount: "100" } });
+    assert.equal(staleClarified.blocked, true, "An already reversed target must not silently switch to the latest active transaction");
+    await assert.rejects(() => commit(staleClarified.id, true), /clarification/);
+    const concurrentClarification = await prepare("Ravi 8 credit", localExtract("Ravi 8 credit"), "test");
+    const beforeClarification = await db.command.count();
+    const clarifiedConcurrently = await Promise.allSettled([
+      clarify(concurrentClarification.id, { "0": { amount: "9" } }),
+      clarify(concurrentClarification.id, { "0": { amount: "10" } }),
+    ]);
+    assert.equal(clarifiedConcurrently.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(await db.command.count(), beforeClarification + 1, "Concurrent clarification creates only one successor preview");
+    await assert.rejects(() => clarify(concurrentClarification.id, {}), /no longer pending/);
     const amount = await prepare(
       "Ravi 100 or 200",
       localExtract("Ravi 100 or 200"),
@@ -230,6 +263,9 @@ test("exact paise, multilingual parsing, and safe ledger lifecycle", async () =>
     await db.command.update({ where: { id: expired.id }, data: { createdAt: new Date(Date.now() - 16 * 60 * 1000) } });
     const beforeExpired = await db.entry.count();
     await assert.rejects(() => commit(expired.id, true), /expired/);
+    const beforeExpiredClarification = await db.command.count();
+    await assert.rejects(() => clarify(expired.id, { "0": { amount: "8" } }), /expired/);
+    assert.equal(await db.command.count(), beforeExpiredClarification, "Clarification cannot renew an expired preview");
     await db.command.update({ where: { id: expired.id }, data: { state: "cancelled" } });
     await assert.rejects(() => commit(expired.id, true), /no longer available/);
     assert.equal(await db.entry.count(), beforeExpired, "Expired and cancelled previews cannot post");

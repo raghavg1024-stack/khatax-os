@@ -203,16 +203,19 @@ export default function Workbench() {
     Record<string, { customerId?: string; amount?: string; date?: string }>
   >({});
   const [listening, setListening] = useState(false);
+  const [voiceFinishing, setVoiceFinishing] = useState(false);
   const [level, setLevel] = useState(0);
   const [voiceOn, setVoiceOn] = useState(false);
   const [expandedAudit, setExpandedAudit] = useState("");
   const voice = useRef<VoiceHandle | null>(null);
   const voiceSession = useRef(0);
+  const voiceStopRequested = useRef(false);
   const voiceLanguageInitialized = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const assistant = useRef<HTMLElement>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   const audioUrl = useRef<string | null>(null);
+  const replySession = useRef(0);
   const requestLock = useRef(false);
   const refresh = useCallback(async () => {
     try {
@@ -256,8 +259,10 @@ export default function Workbench() {
       window.removeEventListener("popstate", read);
       window.removeEventListener("keydown", key);
       voiceSession.current++;
+      replySession.current++;
       voice.current?.stop();
       audio.current?.pause();
+      window.speechSynthesis?.cancel();
       if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
     };
   }, [refresh]);
@@ -283,6 +288,8 @@ export default function Workbench() {
     voice.current?.stop();
     voice.current = null;
     setListening(false);
+    setVoiceFinishing(false);
+    voiceStopRequested.current = false;
     setLevel(0);
     setTab(value);
     setQuery("");
@@ -295,6 +302,7 @@ export default function Workbench() {
   }
   async function speak(message: string) {
     if (!voiceOn) return;
+    const session = ++replySession.current;
     try {
       audio.current?.pause();
       window.speechSynthesis?.cancel();
@@ -304,12 +312,15 @@ export default function Workbench() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: message, language: "en-IN" }),
         });
+        if (session !== replySession.current) return;
         if (!res.ok)
           throw new Error(
             "Voice reply failed. The written result is available.",
           );
+        const blob = await res.blob();
+        if (session !== replySession.current) return;
         if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
-        audioUrl.current = URL.createObjectURL(await res.blob());
+        audioUrl.current = URL.createObjectURL(blob);
         audio.current = new Audio(audioUrl.current);
         await audio.current.play();
       } else if (window.speechSynthesis) {
@@ -318,6 +329,7 @@ export default function Workbench() {
         window.speechSynthesis.speak(utterance);
       } else throw new Error("Browser voice replies are unavailable.");
     } catch (e) {
+      if (session !== replySession.current) return;
       setError(e instanceof Error ? e.message : "Could not play voice reply.");
     }
   }
@@ -353,6 +365,8 @@ export default function Workbench() {
     voice.current?.stop();
     voice.current = null;
     setListening(false);
+    setVoiceFinishing(false);
+    voiceStopRequested.current = false;
     await work(async () => {
       const result = await api({ op: "preview", text: value });
       showPreview(result);
@@ -360,11 +374,10 @@ export default function Workbench() {
   }
   async function startVoice() {
     if (listening) {
-      voiceSession.current++;
+      if (voiceStopRequested.current) return;
+      voiceStopRequested.current = true;
+      setVoiceFinishing(true);
       voice.current?.stop();
-      voice.current = null;
-      setListening(false);
-      setLevel(0);
       return;
     }
     const selectedLanguage = LANGUAGES.find((item) => item.code === language);
@@ -374,7 +387,12 @@ export default function Workbench() {
     }
     setError("");
     setText("");
+    replySession.current++;
+    audio.current?.pause();
+    window.speechSynthesis?.cancel();
     setListening(true);
+    setVoiceFinishing(false);
+    voiceStopRequested.current = false;
     const session = ++voiceSession.current;
     let ended = false;
     let transcript = "";
@@ -393,6 +411,8 @@ export default function Workbench() {
         if (session !== voiceSession.current) return;
         voice.current = null;
         setListening(false);
+        setVoiceFinishing(false);
+        voiceStopRequested.current = false;
         setLevel(0);
       };
       const fail = (message: string) => {
@@ -404,10 +424,15 @@ export default function Workbench() {
         ? await streamingRecognition(language, onText, end, fail, setLevel)
         : browserRecognition(language, onText, end, fail);
       if (session !== voiceSession.current || ended) handle.stop();
-      else voice.current = handle;
+      else {
+        voice.current = handle;
+        if (voiceStopRequested.current) handle.stop();
+      }
     } catch (e) {
       if (session !== voiceSession.current) return;
       setListening(false);
+      setVoiceFinishing(false);
+      voiceStopRequested.current = false;
       setError(e instanceof Error ? e.message : "Microphone is unavailable.");
     }
   }
@@ -705,6 +730,7 @@ export default function Workbench() {
       onClick={() => {
         setVoiceOn(!voiceOn);
         if (voiceOn) {
+          replySession.current++;
           window.speechSynthesis?.cancel();
           audio.current?.pause();
         }
@@ -733,9 +759,9 @@ export default function Workbench() {
           <button
             className="mic-button"
             aria-label={
-              listening ? "Stop listening" : "Start voice command"
+              voiceFinishing ? "Finishing voice command" : listening ? "Stop listening" : "Start voice command"
             }
-            disabled={busy}
+            disabled={busy || voiceFinishing}
             onClick={() => void startVoice()}
           >
             {listening ? (
@@ -761,6 +787,8 @@ export default function Workbench() {
         <span className="mic-instruction">
           {busy
             ? "Understanding your command…"
+            : voiceFinishing
+              ? "Finishing your command…"
             : listening
               ? "Listening… speak naturally"
               : "Tap the mic. Speak naturally."}
@@ -1125,7 +1153,7 @@ export default function Workbench() {
                 {renderHeading(false)}
                 <p className="stage-tagline">One Voice. Every Transaction. Any Language.</p>
                 <div className="stage-actions">
-                  <Button onClick={() => void startVoice()} disabled={busy || !data || !!preview}><Mic size={18} />{listening ? "Stop listening" : "Speak a transaction"}</Button>
+                  <Button onClick={() => void startVoice()} disabled={busy || voiceFinishing || !data || !!preview}><Mic size={18} />{voiceFinishing ? "Finishing command…" : listening ? "Stop listening" : "Speak a transaction"}</Button>
                   <button className="text-button" onClick={() => go("ledger")}>Open your ledger</button>
                 </div>
                 <div className="stage-manual-actions" aria-label="Manual entry actions">{renderActions(true)}</div>

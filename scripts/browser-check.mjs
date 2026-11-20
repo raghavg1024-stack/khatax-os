@@ -233,6 +233,32 @@ try {
   assert.equal((await state()).entries.length, beforeVoice);
   await clickText("Discard");
   await page.waitForSelector(".preview-area", { hidden: true });
+  // A user pressing Stop must still receive the provider's final result.
+  await page.evaluate((voiceCommand) => {
+    window.webkitSpeechRecognition = class {
+      stopped = false;
+      start() {}
+      stop() {
+        if (this.stopped) return;
+        this.stopped = true;
+        setTimeout(() => {
+          this.onresult?.({
+            resultIndex: 0,
+            results: [{isFinal: true, 0: {transcript: voiceCommand}, length: 1}],
+          });
+          this.onend?.();
+        }, 50);
+      }
+      abort() {}
+    };
+  }, `${nickname} 30 credit`);
+  await page.click('button[aria-label="Start voice command"]');
+  await page.click('button[aria-label="Stop listening"]');
+  await page.waitForSelector(".preview-area");
+  assert.ok((await page.$eval(".preview-action b", (el) => el.textContent)).includes("30"));
+  assert.equal((await state()).entries.length, beforeVoice, "Stopping speech must only prepare a review");
+  await clickText("Discard");
+  await page.waitForSelector(".preview-area", { hidden: true });
   await clickText("Overview");
   await page.evaluate(() =>
     document
@@ -277,6 +303,42 @@ try {
     path: "test-results/overview-1280.png",
     fullPage: true,
   });
+  // Delay a simulated TTS response until after the user disables replies.
+  await page.evaluateOnNewDocument(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.qaAudioPlays = 0;
+    window.Audio = class {
+      pause() {}
+      async play() { window.qaAudioPlays++; }
+    };
+    window.fetch = async (input, options) => {
+      if (input === "/api/speak") {
+        window.qaSpeakPending = true;
+        return new Promise((resolve) => {
+          window.qaResolveSpeech = () => resolve(new Response(new Blob(["audio"]), {status: 200}));
+        });
+      }
+      const response = await originalFetch(input, options);
+      if (input === "/api/state") {
+        const snapshot = await response.json();
+        snapshot.providers.gnaniVoice = true;
+        return new Response(JSON.stringify(snapshot), {status: response.status});
+      }
+      return response;
+    };
+  });
+  await page.goto(url, {waitUntil: "networkidle0"});
+  await page.waitForSelector(".stats");
+  await page.click('button[aria-label="Enable voice replies"]');
+  await page.type('textarea[aria-label="Type a ledger command"]', `${nickname} balance`);
+  await page.click('button[aria-label="Understand command"]');
+  await page.waitForFunction(() => window.qaSpeakPending === true);
+  await page.click('button[aria-label="Disable voice replies"]');
+  await page.evaluate(() => window.qaResolveSpeech());
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(await page.evaluate(() => window.qaAudioPlays), 0, "Disabling replies must suppress pending audio");
+  await clickText("Ask something else");
+  await page.waitForSelector(".preview-area", {hidden: true});
   assert.equal(errors.length, 0, errors.join("\n"));
   const report = {
     passed: true,
@@ -295,6 +357,8 @@ try {
       "Audit disclosure",
       "CSV export",
       "Cross-origin rejection",
+      "Voice stop preserves final transcript without posting",
+      "Disabling voice replies suppresses delayed audio",
       "Mobile overflow",
       "Mobile financial review and 320/768/1920px responsive layouts",
       "No browser exceptions",

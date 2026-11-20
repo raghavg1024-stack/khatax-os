@@ -1,4 +1,12 @@
-# Release verification — 17 November 2026
+# Release verification — 20 November 2026
+
+## 20 November release review
+
+Independent backend, product QA, and DevOps reviews found and fixed five issues: clarification could switch the reviewed correction target to a newer entry; a correction date override could be lost; simultaneous clarification could leave multiple live previews; pressing Stop could discard the final speech result; and a delayed spoken reply could play after replies were disabled. Clarification now supersedes its parent atomically, rejects expired previews, and retains the reviewed target. Voice finalization preserves the session, while reply cancellation invalidates pending audio.
+
+Fresh verification of this release passes all 10 automated tests, TypeScript, the optimized production build, and 19 compiled Chrome workflows. The new browser checks simulate final speech arriving only after Stop and delayed synthesis arriving after replies are disabled. The live provider suite separately passes all nine checks, including real Sarvam audio-to-ledger preview and playable Gnani speech, with ledger balances unchanged. Browser and financial write tests use isolated SQLite databases.
+
+GitHub Actions now runs installation, Prisma generation, source-secret exclusion, tests, typechecking, and the production build without production credentials. These checks report results; Vercel Git autodeployment is not configured to wait for them. This release was tested locally before publication.
 
 The release uses hosted SQLite for durable records, Sarvam Saaras v4 for recognition, Gemini for native-language understanding, NVIDIA Nemotron 3.5 Lightning for normalized-plan review, and Gnani Timbre v3.0 for spoken replies. Provider keys remain server-only and are excluded from Git and source archives.
 
@@ -6,7 +14,7 @@ The release uses hosted SQLite for durable records, Sarvam Saaras v4 for recogni
 
 - All 10 Node tests pass, including financial lifecycle integration, provider output validation, safe errors, origin validation, microphone cancellation, and both speech protocols.
 - TypeScript and the optimized Next.js production build pass.
-- Compiled Chrome QA passes all 17 recorded workflows: customer create/edit, keyboard dialog cancellation and restored focus, preview without writing, exact payment/credit arithmetic, multiple actions, identity clarification, reversal, URL/search state, customer search, insights, audit disclosure, CSV export, cross-origin rejection, mobile review, responsive layouts, and absence of browser exceptions.
+- Compiled Chrome QA passes all 19 recorded workflows: customer create/edit, keyboard dialog cancellation and restored focus, preview without writing, exact payment/credit arithmetic, multiple actions, identity clarification, reversal, URL/search state, customer search, insights, audit disclosure, CSV export, cross-origin rejection, final speech after Stop, cancellation of delayed replies, mobile review, responsive layouts, and absence of browser exceptions.
 - The QA runner refuses hosted/non-loopback targets before financial test writes. QA databases are isolated SQLite files, and default browser QA disables provider credentials.
 - Rendered layouts have no horizontal overflow at 320, 375, 768, 1280, 1440, and 1920px coverage points across the recorded checks.
 

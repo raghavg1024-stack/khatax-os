@@ -12,6 +12,8 @@ The Vercel deployment uses Next.js, a hosted SQLite database, and native Node We
 | Vercel project            | HTTPS web interface, HTTP APIs, bounded native voice WebSocket sessions |
 | Turso hosted SQLite       | Durable customers, entries, commands, and audit history                 |
 | Gemini project/key        | Structured multilingual intention extraction; legacy OpenAI remains optional |
+| NVIDIA key                | Nemotron consistency review of Gemini's normalized action plan         |
+| Sarvam key                | Realtime recognition for 22 scheduled Indian languages plus English    |
 | Gnani key                 | Prisma v3.0 streaming recognition and Timbre v3.0 speech synthesis      |
 
 Turso's Starter plan was selected for the initial database setup. Account/marketplace terms must be accepted by the account owner before provisioning. Additional usage or paid plans are not automatically authorized by this repository.
@@ -36,7 +38,7 @@ Turso's Starter plan was selected for the initial database setup. Account/market
 
 Store production credentials in Vercel environment variables. Never put them in Git, `vercel.json`, a browser bundle, a screenshot, or a command-line argument. Environment files and local SQLite data are excluded from both Git and deployment uploads.
 
-Provider priority is NVIDIA, Gemini, then OpenAI, based on non-empty keys. NVIDIA accepts `NVIDIA_API_KEY` or `NVIDIA_NIM_API_KEY`. Gemini accepts `GEMINI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, or `GOOGLE_API_KEY`. The server also accepts `OPEN_AI` and `GNANI_AI` as legacy names. Canonical names take precedence. Each value must contain only the key, without labels, internal whitespace, or additional credentials. A malformed value returns the safe `provider_configuration` error before calling the provider. Rebuild Production after saving a setting.
+When both NVIDIA and Gemini are configured, Gemini interprets the original instruction and NVIDIA reviews the normalized plan. With only one configured, that provider is used; OpenAI is the legacy option when neither is configured. NVIDIA accepts `NVIDIA_API_KEY` or `NVIDIA_NIM_API_KEY`. Gemini accepts `GEMINI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, or `GOOGLE_API_KEY`. The server also accepts `OPEN_AI` and `GNANI_AI` as legacy names. Canonical names take precedence. Each value must contain only the key, without labels, internal whitespace, or additional credentials. A malformed value returns the safe `provider_configuration` error before calling the provider. Rebuild Production after saving a setting.
 
 Production and preview should use separate databases when testing changes that write records. A preview must not run destructive setup against the production ledger. Schema initialization is a separate deliberate step, not a reset during every build.
 
