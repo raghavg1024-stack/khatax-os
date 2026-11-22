@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {prepareShopCommand} from "@/lib/shop-command";
+import {prepareProductCommand,prepareShopCommand} from "@/lib/shop-command";
 import {isSameOriginRequest} from "@/lib/origin";
 import {UserInputError} from "@/lib/errors";
 export const runtime="nodejs";
@@ -8,8 +8,8 @@ export async function POST(request:Request){
  if(!isSameOriginRequest(request))return Response.json({error:"Only same-origin requests are allowed."},{status:403});
  try{
   const raw=await request.text();if(raw.length>8000)return Response.json({error:"Command is too large."},{status:413});
-  const {text}=z.object({text:z.string().trim().min(3).max(2000)}).parse(JSON.parse(raw));
-  return Response.json(await prepareShopCommand(text),{headers:{"Cache-Control":"no-store"}});
+  const {text,task}=z.object({text:z.string().trim().min(3).max(2000),task:z.enum(["sale","product"]).default("sale")}).parse(JSON.parse(raw));
+  return Response.json(await (task==="product"?prepareProductCommand(text):prepareShopCommand(text)),{headers:{"Cache-Control":"no-store"}});
  }catch(error){
   if(error instanceof UserInputError)return Response.json({error:error.message,code:error.code},{status:error.status});
   if(error instanceof z.ZodError||error instanceof SyntaxError)return Response.json({error:"Use a valid inventory command."},{status:400});

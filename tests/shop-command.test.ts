@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {prepareShopCommand,resolveShopIntent} from "../src/lib/shop-command";
+import {prepareProductCommand,prepareShopCommand,resolveShopIntent} from "../src/lib/shop-command";
 
 test("inventory speech previews use server IDs prices stock and exact quantities without writing",async()=>{
  const catalog={products:[{id:"product-server",name:"Rice bag",sku:"RICE",unit:"bag",pricePaise:25000,stockMilli:5000}],customers:[{id:"customer-server",name:"Ravi Sharma",nicknames:"Ravi"}]};
@@ -30,5 +30,21 @@ test("inventory speech previews use server IDs prices stock and exact quantities
   assert.equal((await prepareShopCommand("रवि को दो Rice bag उधार दो",catalog)).blocked,false);
   globalThis.fetch=async()=>Response.json({error:{message:"private provider details"}},{status:429});
   await assert.rejects(()=>prepareShopCommand("Ravi two rice bags credit",catalog),error=>error instanceof Error&&!error.message.includes("private provider details"));
+ }finally{globalThis.fetch=previousFetch;if(previousKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=previousKey;}
+});
+
+test("spoken product setup prepares a reviewed draft without writing",async()=>{
+ const previousFetch=globalThis.fetch,previousKey=process.env.GEMINI_API_KEY;
+ try{
+  process.env.GEMINI_API_KEY="gemini-placeholder";
+  globalThis.fetch=async(_url,init)=>{
+   const body=JSON.parse(String(init?.body));assert.equal(body.generationConfig.responseMimeType,"application/json");
+   return Response.json({candidates:[{finishReason:"STOP",content:{parts:[{text:JSON.stringify({name:"Rice bag",unit:"bag",priceRupees:"100",stockQuantity:"5",needsClarification:false,question:""})}]}}]});
+  };
+  const result=await prepareProductCommand("Add rice bag, 100 rupees per bag, stock 5 bags",[]);
+  assert.equal(result.blocked,false);assert.ok(result.draft);if(!result.draft||result.draft.op!=="product")assert.fail();
+  assert.equal(result.draft.name,"Rice bag");assert.equal(result.draft.pricePaise,10000);assert.equal(result.draft.initialStockMilli,5000);assert.equal(result.draft.unit,"bag");
+  globalThis.fetch=async()=>Response.json({candidates:[{finishReason:"STOP",content:{parts:[{text:JSON.stringify({name:"Rice bag",unit:"",priceRupees:"100",stockQuantity:"",needsClarification:true,question:"Which unit?"})}]}}]});
+  assert.equal((await prepareProductCommand("Add rice bag at 100",[])).blocked,true);
  }finally{globalThis.fetch=previousFetch;if(previousKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=previousKey;}
 });
