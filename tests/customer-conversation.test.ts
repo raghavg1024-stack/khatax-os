@@ -12,4 +12,6 @@ test("customer conversation collects details and requires explicit save",()=>{
   const nick=advanceCustomer(phone.draft,"Rahu"); if(nick.kind!=="next") assert.fail();
   assert.equal(advanceCustomer(nick.draft,"anything").kind,"repeat");
   assert.equal(advanceCustomer(nick.draft,"हाँ").kind,"save");
+  assert.equal(advanceCustomer(nick.draft,"haan ji add kar do").kind,"save");
+  assert.equal(advanceCustomer(nick.draft,"don't save").kind,"cancel");
 });

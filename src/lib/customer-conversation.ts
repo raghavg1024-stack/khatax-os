@@ -1,6 +1,14 @@
 export type CustomerDraft = {step:"name"|"phone"|"nicknames"|"review";name:string;phone:string;nicknames:string};
 const tidy = (s:string)=>s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu,"");
-export const decision = (s:string) => ["yes","confirm","save","हाँ","हां","जीहाँ","सहेजो","ಹೌದು","అవును","ஆம்"].includes(tidy(s)) ? "confirm" : ["cancel","discard","नहीं","नही","रद्द","रद्दकरो","ಬೇಡ","వద్దు"].includes(tidy(s)) ? "cancel" : "other";
+export const decision = (s:string) => {
+  const value=tidy(s);
+  // Speech recognition often returns a full spoken sentence, not the exact
+  // one-word answer shown in the prompt. Check negation first so phrases like
+  // "don't save" can never be treated as approval.
+  if(["cancel","discard","no","dont","donot","नहीं","नही","मत","रद्द","रद्दकरो","ಬೇಡ","ವద్దు","వద్దు","வேண்டாம்","না","করবেননা","નહીં","ਨਹੀਂ","വേണ്ട"].some(word=>value===tidy(word)||value.startsWith(tidy(word))))return "cancel";
+  if(["yes","yeah","yep","haan","hanji","confirm","confirmed","save","saveit","create","createit","addit","goahead","ठीकहै","सहीहै","हां","हाँ","जीहाँ","बनादो","बनादें","बनाइए","जोड़दो","जोड़दें","जोड़िए","सहेजो","ಹೌದು","ಸರಿ","ಮಾಡಿ","అవును","సరే","చేయండి","ஆம்","சரி","செய்யுங்கள்","ঠিকআছে","করুন","બરાબર","બનાવો","ਠੀਕ","ਕਰੋ","ശരി","ചെയ്യൂ"].some(word=>value===tidy(word)||value.startsWith(tidy(word))))return "confirm";
+  return "other";
+};
 export function beginsCustomerConversation(text:string) {
   return /\b(?:add|create|new)\s+(?:a\s+)?(?:new\s+)?customer\b|(?:नया|नए|नये)\s*(?:ग्राहक|कस्टमर)|(?:ग्राहक|कस्टमर).*?(?:जोड़|जोड़|बना)|ಹೊಸ\s*ಗ್ರಾಹಕ|కొత్త\s*(?:కస్టమర్|వినియోగదారు)|புதிய\s*வாடிக்கையாளர்|নতুন\s*গ্রাহক|નવો\s*ગ્રાહક|नवीन\s*ग्राहक|ਨਵਾਂ\s*ਗਾਹਕ|പുതിയ\s*ഉപഭോക്താ/i.test(text);
 }
